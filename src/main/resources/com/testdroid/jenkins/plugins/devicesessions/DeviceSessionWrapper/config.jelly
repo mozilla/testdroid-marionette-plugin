@@ -1,0 +1,22 @@
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout"
+         xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+
+    <f:entry title="${%API endpoint}" field="endPointURL">
+   		<f:textbox name="cloudURL" value="${instance.cloudURL}" />
+    </f:entry>
+    <f:entry title="${%Username}" field="username">
+        <f:textbox name="username" value="${instance.username}" />
+    </f:entry>
+    <f:entry title="${%Password}" field="password">
+        <f:password name="password" value="${instance.password}" />
+    </f:entry>
+    <f:entry title="${%Device}" field="deviceId">
+        <f:textbox name="deviceId" value="${instance.deviceId}" />
+    </f:entry>
+    <f:advanced>
+        <f:entry title="${%URL of the flash image}" field="flashURL">
+            <f:textbox name="flashImageURL" value="${instance.flashImageURL}" />
+        </f:entry>
+    </f:advanced>
+
+</j:jelly>
