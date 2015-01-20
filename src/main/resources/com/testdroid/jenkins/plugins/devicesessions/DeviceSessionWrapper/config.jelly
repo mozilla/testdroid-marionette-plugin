@@ -10,8 +10,8 @@
     <f:entry title="${%Password}" field="password">
         <f:password name="password" value="${instance.password}" />
     </f:entry>
-    <f:entry title="${%Device}" field="deviceId">
-        <f:textbox name="deviceId" value="${instance.deviceId}" />
+    <f:entry title="${%Device Name}" field="deviceName">
+        <f:textbox name="deviceName" value="${instance.deviceName}" />
     </f:entry>
     <f:advanced>
         <f:entry title="${%URL of the flash image}" field="flashURL">
