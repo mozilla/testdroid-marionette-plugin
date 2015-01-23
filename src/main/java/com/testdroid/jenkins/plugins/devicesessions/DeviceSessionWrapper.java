@@ -2,11 +2,11 @@ package com.testdroid.jenkins.plugins.devicesessions;
 
 import com.testdroid.api.*;
 import com.testdroid.api.model.*;
+import hudson.EnvVars;
 import hudson.Extension;
 import hudson.Launcher;
-import hudson.model.AbstractBuild;
-import hudson.model.AbstractProject;
-import hudson.model.BuildListener;
+import hudson.Util;
+import hudson.model.*;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import net.sf.json.JSONArray;
@@ -30,14 +30,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private static final transient Logger LOGGER = Logger.getLogger(DeviceSessionWrapper.class.getName());
 
     private static final long serialVersionUID = 1L;
+
     //device label group which contains all the build version labels
     private final static String BUILD_VERSION_LABEL_GROUP = "Build version";
+
     //default flash project name in testdroid TODO: add it as parameter
     private final static String FLASH_PROJECT_NAME = "flash-fxos";
+
+    //default flash project name in testdroid TODO: add it as parameter
+    private final static String FLASH_PACKAGE_URL_PARAM = "FLAME_ZIP_URL";
+
     //maximum waiting time for flash project to finish
-    private final static int FLASH_TIMEOUT = 10*60*1000;
+    private final static int FLASH_TIMEOUT = 10*60*1000;  //10mins
 
     private final static int FLASH_RETRIES = 3;
+
+    private final static int WAIT_FOR_PROXY_TIMEOUT = 5*60*1000;  //5mins
+
+    private final static int POLL_INTERVAL = 10*1000;
 
     private DescriptorImpl descriptor;
     //testdroid API endpoint
@@ -50,15 +60,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private String password;
     //Name or device model id
     private String deviceName;
-
-    //Testdroid client
-    private DefaultAPIClient client;
-    //Testdroid session
-    private APIDeviceSession session;
-    //Testdroid ADB proxy
-    private JSONObject adb;
-    //Testdroid Marionette proxy
-    private JSONObject marionette;
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
@@ -77,35 +78,37 @@ public class DeviceSessionWrapper extends BuildWrapper {
      */
     @Override
     @SuppressWarnings({"hiding", "unchecked"})
-    public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException {
+    public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
 
         listener.getLogger().println("Connecting to " + getCloudURL() + " as " + getUsername());
 
 
-        client = new DefaultAPIClient(getCloudURL(), getUsername(), getPassword());
+        APIClient client = new DefaultAPIClient(getCloudURL(), getUsername(), getPassword());
         APIUser user = null;
+
+        //authorize
         try {
             user = client.me();
-            // TODO: Catch/prevent null pointer exception for invalid URL
         } catch (APIException e) {
             listener.getLogger().println("Connection failed! " + e.getMessage());
             throw new IOException(e);
         }
 
         final URL cloudURL = new URL(getCloudURL());
+        String finalFlashImageURL = applyMacro(build, listener, getFlashImageURL());
 
         //Look for device having "Build version" label group with label {flashImageURL}
         //if not matching device is not found run "reflash" project and look again.
         APIDevice device = null;
         try {
             int maxRetries = FLASH_RETRIES;
-            while( (device = searchDeviceByLabel(client, getFlashImageURL())) == null) {
+            while( (device = searchDeviceByLabel(client, finalFlashImageURL)) == null) {
                 if(maxRetries-- < 0 ) {
                     listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
                     throw new IOException("Device flashing failed");
                 }
                 listener.getLogger().println("Flashing device with specific build");
-                runProject(client, getFlashImageURL());
+                runProject(client, finalFlashImageURL);
 
             }
 
@@ -118,47 +121,51 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         Map<String, String> deviceSessionsParams = new HashMap<String, String>();
         deviceSessionsParams.put("deviceModelId", device.getId().toString());
-
+        APIDeviceSession session;
         try {
             session = client.post("/me/device-sessions", deviceSessionsParams, APIDeviceSession.class);
         } catch (APIException e) {
             listener.getLogger().println("Failed to start device session" + e.getMessage());
             throw new IOException(e);
         }
+        JSONObject adb;
+        JSONObject marionette;
         try {
             listener.getLogger().println("Device session started on device: " + device.getDisplayName());
-            adb = getProxy("adb");
-            marionette = getProxy("marionette");
+            LOGGER.log(Level.INFO, "Device session started id: " + session.getId());
+            adb = getProxy("adb", client, session);
+            marionette = getProxy("marionette", client, session);
         } catch (IOException ioe) {
-            releaseDeviceSession(listener);
+            listener.getLogger().println("Failed to fetch proxy entries" + ioe.getMessage());
+            releaseDeviceSession(listener, client, session);
             throw ioe;
         }
 
-        return new Environment() {
+        return new TestdroidSessionEnvironment(client, session, adb, marionette) {
 
             @Override
             public void buildEnvVars(Map<String, String> env) {
-                listener.getLogger().println("Successfully started device session with ID: " + session.getId());
-                    env.put("SESSION_ID", Long.toString(session.getId()));
+
+                listener.getLogger().println("Successfully started device session with ID: " + apiDeviceSession.getId());
+                env.put("SESSION_ID", Long.toString(apiDeviceSession.getId()));
 
                 // ADB environment variables
-                listener.getLogger().println("ADB port: " + adb.getString("port"));
-                env.put("ADB_PORT", adb.getString("port"));
+                listener.getLogger().println("ADB port: " + adbJSONObject.getString("port"));
+                env.put("ADB_PORT", adbJSONObject.getString("port"));
 
                 listener.getLogger().println("ADB host: " + cloudURL.getHost());
                 env.put("ADB_HOST", cloudURL.getHost());
 
 
-                listener.getLogger().println("Android serial: " + adb.getString("serialId"));
-                env.put("ANDROID_SERIAL", adb.getString("serialId"));
+                listener.getLogger().println("Android serial: " + adbJSONObject.getString("serialId"));
+                env.put("ANDROID_SERIAL", adbJSONObject.getString("serialId"));
 
                 // Marionette environment variables
-                listener.getLogger().println("Marionette port: " + marionette.getString("port"));
-                env.put("MARIONETTE_PORT", marionette.getString("port"));
+                listener.getLogger().println("Marionette port: " + marionetteJSONObject.getString("port"));
+                env.put("MARIONETTE_PORT", marionetteJSONObject.getString("port"));
 
                 listener.getLogger().println("Marionette host: " + cloudURL.getHost());
                 env.put("MARIONETTE_HOST", cloudURL.getHost());
-
 
             }
 
@@ -166,29 +173,65 @@ public class DeviceSessionWrapper extends BuildWrapper {
             @SuppressWarnings("unchecked")
             public boolean tearDown(AbstractBuild build, BuildListener listener)
                     throws IOException, InterruptedException {
-                if(session == null) {
+
+                if(apiDeviceSession == null) {
                     LOGGER.log(Level.WARNING, "Session was not initialized skipping session release");
                     return true;
                 }
-                releaseDeviceSession(listener);
+                releaseDeviceSession(listener, apiClient, apiDeviceSession);
                 return true;
             }
         };
     }
-    private void releaseDeviceSession(final BuildListener listener) throws IOException {
+    private abstract class TestdroidSessionEnvironment extends Environment {
+        protected APIClient apiClient;
+        protected APIDeviceSession apiDeviceSession;
+        protected JSONObject adbJSONObject;
+        protected JSONObject marionetteJSONObject;
+
+        public TestdroidSessionEnvironment(APIClient apiClient, APIDeviceSession apiDeviceSession, JSONObject adbJSONObject, JSONObject marionetteJSONObject) {
+            this.apiClient = apiClient;
+            this.apiDeviceSession = apiDeviceSession;
+            this.adbJSONObject = adbJSONObject;
+            this.marionetteJSONObject = marionetteJSONObject;
+        }
+
+    }
+    private void releaseDeviceSession(final BuildListener listener, APIClient apiClient, APIDeviceSession apiDeviceSession) throws IOException {
         listener.getLogger().println("Releasing device session");
         try {
-            client.post(String.format("/me/device-sessions/%d/release", session.getId()), null, null);
+            apiClient.post(String.format("/me/device-sessions/%d/release", apiDeviceSession.getId()), null, null);
         } catch (APIException e) {
             listener.getLogger().println("Failed to release device session" + e.getMessage());
             throw new IOException(e);
         }
     }
+
     /**
-     * Run "flash" project and wait it has completed
+     * Replace macro with environment variable if it exists
+     * @param build
+     * @param listener
+     * @param macro
+     * @return
+     * @throws InterruptedException
+     */
+    public static String applyMacro(AbstractBuild build, BuildListener listener, String macro)
+            throws InterruptedException{
+        try {
+            EnvVars envVars = new EnvVars(Computer.currentComputer().getEnvironment());
+            envVars.putAll(build.getEnvironment(listener));
+            envVars.putAll(build.getBuildVariables());
+            return Util.replaceMacro(macro, envVars);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to apply macro " + macro, e);
+        }
+        return macro;
+    }
+    /**
+     * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean runProject(APIClient client, String buildLabel) throws APIException {
+    public boolean runProject(APIClient client, String buildLabel) throws APIException, IOException, InterruptedException {
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -197,30 +240,49 @@ public class DeviceSessionWrapper extends BuildWrapper {
             return false;
         }
         APIProject flashProject = projectList.get(0);
+
+        //Create test run
+        Map<String, String> testRunParams = new HashMap<String, String>();
+        testRunParams.put("projectId", flashProject.getId().toString());
+
+        APITestRun testRun = client.post("/runs", testRunParams, APITestRun.class);
+
         //remove old params
-        APITestRunConfig config = flashProject.getTestRunConfig();
-        APIListResource<APITestRunParameter>  params = flashProject.getTestRunConfig().getParameters();
-        for(int i = params.getEntity().getTotal(); i > 0; i--) {
+        APITestRunConfig config = flashProject.getTestRun(testRun.getId()).getConfig();
+        APIListResource<APITestRunParameter>  params = testRun.getConfig().getParameters();
+        for(int i = 0; i < params.getEntity().getTotal(); i++) {
             APITestRunParameter param = params.getEntity().get(i);
             config.deleteParameter(param.getId());
         }
-        config.createParameter("FLAME_ZIP_URL", buildLabel);
+        config.createParameter(FLASH_PACKAGE_URL_PARAM, buildLabel);
         //Search for device by name
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()));
-        List<Long> usedDevicesId = new ArrayList<Long>();
-        usedDevicesId.add(devices.getEntity().get(0).getId());
-        APITestRun testRun = flashProject.run(usedDevicesId);
+        if(devices.getTotal() <1 ) {
+            throw new IOException("Unable find device by name:"+getDeviceName());
+        }
+        Map<String,String> usedDevicesId = new HashMap<String, String>();
+        usedDevicesId.put("usedDeviceIds[]", devices.getEntity().get(0).getId().toString());
+
+        //Start test run
+        client.post(String.format("/runs/%s/start", testRun.getId()),usedDevicesId, APITestRun.class );
+        testRun = flashProject.getTestRun(testRun.getId());
         long waitUntil = Calendar.getInstance().getTimeInMillis()+FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
 
             try {
+
                 Thread.sleep(10000);
-            } catch (InterruptedException e) {
-                //ignoring
-            }
-            if(waitUntil <  Calendar.getInstance().getTimeInMillis()) {
-                LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT/1000));
-                return false;
+
+                if (waitUntil < Calendar.getInstance().getTimeInMillis()) {
+                    testRun.abort();
+                    LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
+                    return false;
+                }
+                testRun.refresh();
+            } catch (InterruptedException ie) {
+                testRun.abort();
+                throw ie;
+
             }
         }
         return true;
@@ -252,14 +314,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         APIListResource<APIDevice> devicesResource = client.getDevices(new APIDeviceQueryBuilder()
                 .filterWithLabelIds(deviceProperty.getId()));
-        System.out.println(String.format("\nGet %s devices with label %s", devicesResource.getTotal(), deviceProperty.getDisplayName()));
+        LOGGER.log(Level.INFO, String.format("\nGot %s device(s) with label %s", devicesResource.getTotal(), deviceProperty.getDisplayName()));
 
         //get the first device with specific label
         for (APIDevice device : devicesResource.getEntity().getData()) {
-            LOGGER.log(Level.INFO, String.format("Found device %s with label %s", device.getDisplayName(), buildLabel));
+            LOGGER.log(Level.INFO, String.format("Found device %s with label %s - Device ID:%d ", device.getDisplayName(), buildLabel, device.getId()));
             return device;
         }
-        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel), BUILD_VERSION_LABEL_GROUP );
+        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_VERSION_LABEL_GROUP) );
         return null;
     }
 
@@ -283,8 +345,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         return password;
     }
 
-    private JSONObject getProxy(String type) throws IOException {
-        int maxRetries = 3;
+    private JSONObject getProxy(String type, APIClient client, APIDeviceSession session) throws IOException, InterruptedException {
+        int tmp = 0;
         try {
             String response;
             JSONArray proxyEntries;
@@ -296,12 +358,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
                 proxyEntries = (JSONArray) JSONSerializer.toJSON(response);
                 if (proxyEntries.isEmpty()) {
-                    if(maxRetries-- > 0 ) {
-                        try {
-                            Thread.sleep(10*1000);
-                        } catch (InterruptedException e) {
-                            //ignoring
-                        }
+                    if(tmp < WAIT_FOR_PROXY_TIMEOUT ) {
+                        Thread.sleep(POLL_INTERVAL);
+                        tmp += POLL_INTERVAL;
                         continue;
                     }
                     throw new IOException("Failed to get proxy resource");
