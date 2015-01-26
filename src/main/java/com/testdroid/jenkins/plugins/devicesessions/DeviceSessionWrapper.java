@@ -104,16 +104,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
             int maxRetries = FLASH_RETRIES;
             while( (device = searchDeviceByLabel(client, finalFlashImageURL)) == null) {
                 if(maxRetries-- < 0 ) {
-                    listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
+                    listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                     throw new IOException("Device flashing failed");
                 }
-                listener.getLogger().println("Flashing device with specific build");
+                listener.getLogger().println("Flashing device with " + finalFlashImageURL);
                 runProject(client, finalFlashImageURL);
-
             }
 
         } catch (APIException e) {
-            listener.getLogger().println("Failed to retrieve device by build version" + e.getMessage());
+            listener.getLogger().println("Failed to retrieve device by build version " + e.getMessage());
             throw new IOException(e);
         }
 
