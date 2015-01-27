@@ -122,13 +122,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (APIException e) {
                 //allow to continue if device lock can't be created otherwise throw IOException
                 if (e.getStatus() != 400) {
-                    listener.getLogger().println("Failed to start device session" + e.getMessage());
+                    listener.getLogger().println("Failed to start device session " + e.getMessage());
                     throw new IOException(e);
                 }
             }
             //If session can't be created, run flash project again
             if(session == null) {
-                listener.getLogger().println("Device was not available - Flashing a new device with specific build "+finalFlashImageURL);
+                listener.getLogger().println("Device was not available - flashing a new device with " + finalFlashImageURL);
                 try {
                     runProject(client, finalFlashImageURL);
                 } catch (APIException e) {
@@ -147,7 +147,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             adb = getProxy("adb", client, session);
             marionette = getProxy("marionette", client, session);
         } catch (IOException ioe) {
-            listener.getLogger().println("Failed to fetch proxy entries" + ioe.getMessage());
+            listener.getLogger().println("Failed to fetch proxy entries " + ioe.getMessage());
             releaseDeviceSession(listener, client, session);
             throw ioe;
         }
@@ -186,7 +186,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     throws IOException, InterruptedException {
 
                 if(apiDeviceSession == null) {
-                    LOGGER.log(Level.WARNING, "Session was not initialized skipping session release");
+                    LOGGER.log(Level.WARNING, "Session was not initialized, skipping session release");
                     return true;
                 }
                 releaseDeviceSession(listener, apiClient, apiDeviceSession);
@@ -225,7 +225,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         int maxRetries = FLASH_RETRIES;
         while( (device = searchDeviceByLabel(client, deviceLabel)) == null) {
             if(maxRetries-- < 0 ) {
-                listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
+                listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
             listener.getLogger().println("Flashing device with " + deviceLabel);
@@ -239,7 +239,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         try {
             apiClient.post(String.format("/me/device-sessions/%d/release", apiDeviceSession.getId()), null, null);
         } catch (APIException e) {
-            listener.getLogger().println("Failed to release device session" + e.getMessage());
+            listener.getLogger().println("Failed to release device session " + e.getMessage());
             throw new IOException(e);
         }
     }
@@ -273,7 +273,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
         if(projectList == null || projectList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find project:"+FLASH_PROJECT_NAME);
+            LOGGER.log(Level.SEVERE, "Unable find project: " + FLASH_PROJECT_NAME);
             return false;
         }
         APIProject flashProject = projectList.get(0);
@@ -295,7 +295,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //Search for device by name
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()));
         if(devices.getTotal() <1 ) {
-            throw new IOException("Unable find device by name:"+getDeviceName());
+            throw new IOException("Unable find device by name: " + getDeviceName());
         }
         Map<String,String> usedDevicesId = new HashMap<String, String>();
         usedDevicesId.put("usedDeviceIds[]", devices.getEntity().get(0).getId().toString());
@@ -331,7 +331,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
 
         if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find label group:"+BUILD_VERSION_LABEL_GROUP);
+            LOGGER.log(Level.SEVERE, "Unable find label group: " + BUILD_VERSION_LABEL_GROUP);
             return null;
         }
 
@@ -341,7 +341,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 .getDevicePropertiesResource(new APIQueryBuilder().search(buildLabel));
         APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
         if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find label "+buildLabel);
+            LOGGER.log(Level.SEVERE, "Unable find label: " + buildLabel);
             return null;
         }
 
