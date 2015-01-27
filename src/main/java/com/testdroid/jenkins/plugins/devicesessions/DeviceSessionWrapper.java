@@ -101,16 +101,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //if not matching device is not found run "reflash" project and look again.
         APIDevice device = null;
         try {
-            int maxRetries = FLASH_RETRIES;
-            while( (device = searchDeviceByLabel(client, finalFlashImageURL)) == null) {
-                if(maxRetries-- < 0 ) {
-                    listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
-                    throw new IOException("Device flashing failed");
-                }
-                listener.getLogger().println("Flashing device with specific build");
-                runProject(client, finalFlashImageURL);
-
-            }
+            device = getDeviceByLabel(client, finalFlashImageURL, listener );
 
         } catch (APIException e) {
             listener.getLogger().println("Failed to retrieve device by build version" + e.getMessage());
@@ -121,13 +112,34 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         Map<String, String> deviceSessionsParams = new HashMap<String, String>();
         deviceSessionsParams.put("deviceModelId", device.getId().toString());
-        APIDeviceSession session;
-        try {
-            session = client.post("/me/device-sessions", deviceSessionsParams, APIDeviceSession.class);
-        } catch (APIException e) {
-            listener.getLogger().println("Failed to start device session" + e.getMessage());
-            throw new IOException(e);
-        }
+        APIDeviceSession session = null;
+
+        int retries = FLASH_RETRIES;
+        do {
+            //in this phase we have found device with specific label, however it might not be available anymore
+            //1) request device session
+            try {
+                session = client.post("/me/device-sessions", deviceSessionsParams, APIDeviceSession.class);
+            } catch (APIException e) {
+                //allow to continue if device lock can't be created otherwise throw IOException
+                if (e.getStatus() != 400) {
+                    listener.getLogger().println("Failed to start device session" + e.getMessage());
+                    throw new IOException(e);
+                }
+            }
+            //If session can't be created, run flash project again
+            if(session == null) {
+                listener.getLogger().println("Device was not available - Flashing a new device with specific build "+finalFlashImageURL);
+                try {
+                    runProject(client, finalFlashImageURL);
+                } catch (APIException e) {
+                    listener.getLogger().println("Failed to run project" + e.getMessage());
+                    throw new IOException(e);
+                }
+            }
+        } while (session == null && retries-- > 0);
+
+
         JSONObject adb;
         JSONObject marionette;
         try {
@@ -196,6 +208,32 @@ public class DeviceSessionWrapper extends BuildWrapper {
             this.marionetteJSONObject = marionetteJSONObject;
         }
 
+    }
+
+    /**
+     * Search device by label from "Build Version" label group. If device is not available flash device with specific
+     * build seach device again.
+     * @param client
+     * @param deviceLabel
+     * @param listener
+     * @return
+     * @throws APIException
+     * @throws IOException
+     * @throws InterruptedException
+     */
+    private APIDevice getDeviceByLabel(APIClient client, String deviceLabel, BuildListener listener) throws APIException, IOException, InterruptedException {
+        APIDevice device;
+        int maxRetries = FLASH_RETRIES;
+        while( (device = searchDeviceByLabel(client, deviceLabel)) == null) {
+            if(maxRetries-- < 0 ) {
+                listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
+                throw new IOException("Device flashing failed");
+            }
+            listener.getLogger().println("Flashing device with specific build "+deviceLabel);
+            runProject(client, deviceLabel);
+
+        }
+        return device;
     }
     private void releaseDeviceSession(final BuildListener listener, APIClient apiClient, APIDeviceSession apiDeviceSession) throws IOException {
         listener.getLogger().println("Releasing device session");
