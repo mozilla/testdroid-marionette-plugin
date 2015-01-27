@@ -102,9 +102,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIDevice device = null;
         try {
             device = getDeviceByLabel(client, finalFlashImageURL, listener );
-
         } catch (APIException e) {
-            listener.getLogger().println("Failed to retrieve device by build version" + e.getMessage());
+            listener.getLogger().println("Failed to retrieve device by build version " + e.getMessage());
             throw new IOException(e);
         }
 
@@ -229,7 +228,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found",FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
-            listener.getLogger().println("Flashing device with specific build "+deviceLabel);
+            listener.getLogger().println("Flashing device with " + deviceLabel);
             runProject(client, deviceLabel);
 
         }
