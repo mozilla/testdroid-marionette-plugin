@@ -80,10 +80,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
     @SuppressWarnings({"hiding", "unchecked"})
     public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
 
-        listener.getLogger().println("Connecting to " + getCloudURL() + " as " + getUsername());
+        String cloudURL = applyMacro(build, listener, getCloudURL());
+        listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername());
 
 
-        APIClient client = new DefaultAPIClient(getCloudURL(), getUsername(), getPassword());
+        APIClient client = new DefaultAPIClient(cloudURL, getUsername(), getPassword());
         APIUser user = null;
 
         //authorize
@@ -94,7 +95,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException(e);
         }
 
-        final URL cloudURL = new URL(getCloudURL());
+        final String cloudHost = new URL(cloudURL).getHost();
         String finalFlashImageURL = applyMacro(build, listener, getFlashImageURL());
 
         //Look for device having "Build version" label group with label {flashImageURL}
@@ -164,8 +165,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 listener.getLogger().println("ADB port: " + adbJSONObject.getString("port"));
                 env.put("ADB_PORT", adbJSONObject.getString("port"));
 
-                listener.getLogger().println("ADB host: " + cloudURL.getHost());
-                env.put("ADB_HOST", cloudURL.getHost());
+                listener.getLogger().println("ADB host: " + cloudHost);
+                env.put("ADB_HOST", cloudHost);
 
 
                 listener.getLogger().println("Android serial: " + adbJSONObject.getString("serialId"));
@@ -175,8 +176,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 listener.getLogger().println("Marionette port: " + marionetteJSONObject.getString("port"));
                 env.put("MARIONETTE_PORT", marionetteJSONObject.getString("port"));
 
-                listener.getLogger().println("Marionette host: " + cloudURL.getHost());
-                env.put("MARIONETTE_HOST", cloudURL.getHost());
+                listener.getLogger().println("Marionette host: " + cloudHost);
+                env.put("MARIONETTE_HOST", cloudHost);
 
             }
 
