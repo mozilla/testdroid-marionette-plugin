@@ -2,17 +2,16 @@ package com.testdroid.jenkins.plugins.devicesessions;
 
 import com.testdroid.api.*;
 import com.testdroid.api.model.*;
-import hudson.EnvVars;
-import hudson.Extension;
-import hudson.Launcher;
-import hudson.Util;
+import hudson.*;
 import hudson.model.*;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
+import jenkins.model.Jenkins;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import net.sf.json.JSONSerializer;
 import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpHost;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.export.ExportedBean;
@@ -81,10 +80,20 @@ public class DeviceSessionWrapper extends BuildWrapper {
     public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
 
         String cloudURL = applyMacro(build, listener, getCloudURL());
-        listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername());
 
+        APIClient client = null;
+        ProxyConfiguration p = Jenkins.getInstance().proxy;
+        if (p != null) {
+            HttpHost proxy = new HttpHost(p.name, p.port);
+            //TODO: Support proxy authentication
+            //TODO: Consider no_proxy hosts
+            listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername() + " using proxy " + proxy.toString());
+            client = new DefaultAPIClient(cloudURL, getUsername(), getPassword(), proxy, false);
+        } else {
+            listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername());
+            client = new DefaultAPIClient(cloudURL, getUsername(), getPassword());
+        }
 
-        APIClient client = new DefaultAPIClient(cloudURL, getUsername(), getPassword());
         APIUser user = null;
 
         //authorize
