@@ -303,12 +303,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
         config.createParameter(FLASH_PACKAGE_URL_PARAM, buildLabel);
         //Search for device by name
-        APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()));
+        APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()).limit(0));
+
         if(devices.getTotal() <1 ) {
             throw new IOException("Unable find device by name: " + getDeviceName());
         }
+        //find device which is online
+        APIDevice device = null;
+        for(APIDevice d : devices.getEntity().getData()) {
+            if(d.isOnline()) {
+                device = d;
+                break;
+            }
+        }
+        if(device == null) {
+            throw new IOException("Unable find device by name: " + getDeviceName());
+        }
         Map<String,String> usedDevicesId = new HashMap<String, String>();
-        usedDevicesId.put("usedDeviceIds[]", devices.getEntity().get(0).getId().toString());
+        usedDevicesId.put("usedDeviceIds[]",device.getId().toString());
 
         //Start test run
         client.post(String.format("/runs/%s/start", testRun.getId()),usedDevicesId, APITestRun.class );
