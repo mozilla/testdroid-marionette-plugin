@@ -475,5 +475,41 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return FormValidation.warning("Unable to validate URL. " + e.getMessage());
             }
         }
+
+        public FormValidation doCheckDeviceName(@QueryParameter String value) throws IOException, ServletException {
+            if (value == null || value.trim().isEmpty()) {
+                return FormValidation.error("Device name is mandatory");
+            } else {
+                return FormValidation.ok();
+            }
+        }
+
+        public FormValidation doCheckEndPointURL(@QueryParameter String value) throws IOException, ServletException {
+            if (value == null || value.trim().isEmpty()) {
+                return FormValidation.error("API endpoint is mandatory");
+            }
+            try {
+                new URI(value);
+                return FormValidation.ok();
+            } catch (Exception e) {
+                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+            }
+        }
+
+        public FormValidation doCheckPassword(@QueryParameter String value) throws IOException, ServletException {
+            if (value == null || value.trim().isEmpty()) {
+                return FormValidation.error("Password is mandatory");
+            } else {
+                return FormValidation.ok();
+            }
+        }
+
+        public FormValidation doCheckUsername(@QueryParameter String value) throws IOException, ServletException {
+            if (value == null || value.trim().isEmpty()) {
+                return FormValidation.error("Username is mandatory");
+            } else {
+                return FormValidation.ok();
+            }
+        }
     }
 }
