@@ -6,6 +6,7 @@ import hudson.*;
 import hudson.model.*;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
+import hudson.util.FormValidation;
 import jenkins.model.Jenkins;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
@@ -13,10 +14,13 @@ import net.sf.json.JSONSerializer;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpHost;
 import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.export.ExportedBean;
 
+import javax.servlet.ServletException;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.*;
@@ -36,8 +40,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
     //default flash project name in testdroid TODO: add it as parameter
     private final static String FLASH_PROJECT_NAME = "flash-fxos";
 
-    //default flash project name in testdroid TODO: add it as parameter
-    private final static String FLASH_PACKAGE_URL_PARAM = "FLAME_ZIP_URL";
+    //parameter for location of build to flash TODO: add it as parameter
+    private final static String BUILD_URL_PARAM = "FLAME_ZIP_URL";
 
     //maximum waiting time for flash project to finish
     private final static int FLASH_TIMEOUT = 10*60*1000;  //10mins
@@ -51,22 +55,22 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private DescriptorImpl descriptor;
     //testdroid API endpoint
     private String cloudURL;
-    //URL for device image
-    private String flashImageURL;
-    //Testdroid username
+    //location of device image
+    private String buildURL;
+    //testdroid username
     private String username;
-    //Testdroid password
+    //testdroid password
     private String password;
-    //Name or device model id
+    //name or device model id
     private String deviceName;
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
-    public DeviceSessionWrapper(String cloudURL, String username, String password, String deviceName, String flashImageURL) {
+    public DeviceSessionWrapper(String cloudURL, String username, String password, String deviceName, String buildURL) {
         this.cloudURL = cloudURL;
         this.username = username;
         this.password = password;
-        this.flashImageURL = flashImageURL;
+        this.buildURL = buildURL;
         this.deviceName = deviceName;
     }
 
@@ -105,13 +109,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
 
         final String cloudHost = new URL(cloudURL).getHost();
-        String finalFlashImageURL = applyMacro(build, listener, getFlashImageURL());
+        String finalBuildURL = applyMacro(build, listener, getBuildURL());
 
-        //Look for device having "Build version" label group with label {flashImageURL}
+        //Look for device having "Build version" label group with label {finalBuildURL}
         //if not matching device is not found run "reflash" project and look again.
         APIDevice device = null;
         try {
-            device = getDeviceByLabel(client, finalFlashImageURL, listener );
+            device = getDeviceByLabel(client, finalBuildURL, listener);
         } catch (APIException e) {
             listener.getLogger().println("Failed to retrieve device by build version " + e.getMessage());
             throw new IOException(e);
@@ -138,9 +142,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
             //If session can't be created, run flash project again
             if(session == null) {
-                listener.getLogger().println("Device was not available - flashing a new device with " + finalFlashImageURL);
+                listener.getLogger().println("Device was not available - flashing a new device with " + finalBuildURL);
                 try {
-                    runProject(client, finalFlashImageURL);
+                    runProject(client, finalBuildURL);
                 } catch (APIException e) {
                     listener.getLogger().println("Failed to run project" + e.getMessage());
                     throw new IOException(e);
@@ -234,7 +238,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIDevice device;
         int maxRetries = FLASH_RETRIES;
         while( (device = searchDeviceByLabel(client, deviceLabel)) == null) {
-            if(maxRetries-- < 0 ) {
+            if(maxRetries-- < 0) {
                 listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
@@ -301,11 +305,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             APITestRunParameter param = params.getEntity().get(i);
             config.deleteParameter(param.getId());
         }
-        config.createParameter(FLASH_PACKAGE_URL_PARAM, buildLabel);
+        config.createParameter(BUILD_URL_PARAM, buildLabel);
         //Search for device by name
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()).limit(0));
 
-        if(devices.getTotal() <1 ) {
+        if(devices.getTotal() <1) {
             throw new IOException("Unable find device by name: " + getDeviceName());
         }
         //find device which is online
@@ -323,7 +327,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         usedDevicesId.put("usedDeviceIds[]",device.getId().toString());
 
         //Start test run
-        client.post(String.format("/runs/%s/start", testRun.getId()),usedDevicesId, APITestRun.class );
+        client.post(String.format("/runs/%s/start", testRun.getId()),usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
         long waitUntil = Calendar.getInstance().getTimeInMillis()+FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
@@ -380,7 +384,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             LOGGER.log(Level.INFO, String.format("Found device %s with label %s - Device ID:%d ", device.getDisplayName(), buildLabel, device.getId()));
             return device;
         }
-        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_VERSION_LABEL_GROUP) );
+        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_VERSION_LABEL_GROUP));
         return null;
     }
 
@@ -388,8 +392,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         return deviceName;
     }
 
-    public String getFlashImageURL() {
-        return flashImageURL;
+    public String getBuildURL() {
+        return buildURL;
     }
 
     public String getCloudURL() {
@@ -410,14 +414,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
             String response;
             JSONArray proxyEntries;
             String queryTemplate = "{\"type\":\"%s\", \"sessionId\": %d}";
-            String proxyURL = String.format("/proxy-plugin/proxies?where=%s", URLEncoder.encode(String.format(queryTemplate, type, session.getId()), "UTF-8") );
+            String proxyURL = String.format("/proxy-plugin/proxies?where=%s", URLEncoder.encode(String.format(queryTemplate, type, session.getId()), "UTF-8"));
             while((response = IOUtils.toString(client.get(proxyURL))) != null) {
 
                 LOGGER.log(Level.WARNING, "Testdroid " + type + " proxy response: " + response+"URL:"+proxyURL);
 
                 proxyEntries = (JSONArray) JSONSerializer.toJSON(response);
                 if (proxyEntries.isEmpty()) {
-                    if(tmp < WAIT_FOR_PROXY_TIMEOUT ) {
+                    if(tmp < WAIT_FOR_PROXY_TIMEOUT) {
                         Thread.sleep(POLL_INTERVAL);
                         tmp += POLL_INTERVAL;
                         continue;
@@ -458,6 +462,18 @@ public class DeviceSessionWrapper extends BuildWrapper {
         @Override
         public boolean isApplicable(AbstractProject<?, ?> item) {
             return true;
+        }
+
+        public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {
+            if (value == null || value.trim().isEmpty()) {
+                return FormValidation.error("Build URL is mandatory");
+            }
+            try {
+                new URI(value);
+                return FormValidation.ok();
+            } catch (Exception e) {
+                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+            }
         }
     }
 }
