@@ -13,10 +13,8 @@
     <f:entry title="${%Device name}" field="deviceName">
         <f:textbox name="deviceName" value="${instance.deviceName}" />
     </f:entry>
-    <f:advanced>
-        <f:entry title="${%URL of the flash image}" field="flashURL">
-            <f:textbox name="flashImageURL" value="${instance.flashImageURL}" />
-        </f:entry>
-    </f:advanced>
+    <f:entry title="${%Build URL}" field="buildURL">
+        <f:textbox name="buildURL" value="${instance.buildURL}" />
+    </f:entry>
 
 </j:jelly>
