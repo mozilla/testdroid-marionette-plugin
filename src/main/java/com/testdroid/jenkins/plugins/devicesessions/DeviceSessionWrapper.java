@@ -48,6 +48,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
     //parameter for location of build to flash TODO: add it as parameter
     private final static String BUILD_URL_PARAM = "FLAME_ZIP_URL";
 
+    //parameter for total memory to allocate
+    private final static String MEM_TOTAL_PARAM = "MEM_TOTAL";
+
     //maximum waiting time for flash project to finish
     private final static int FLASH_TIMEOUT = 10*60*1000;  //10mins
 
@@ -66,6 +69,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private String cloudURL;
     //location of device image
     private String buildURL;
+    //total memory to allocate
+    private String memTotal;
     //testdroid username
     private String username;
     //testdroid password
@@ -75,11 +80,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
-    public DeviceSessionWrapper(String cloudURL, String username, String password, String deviceName, String buildURL) {
+    public DeviceSessionWrapper(String cloudURL, String username, String password, String deviceName, String buildURL, String memTotal) {
         this.cloudURL = cloudURL;
         this.username = username;
         this.password = password;
         this.buildURL = buildURL;
+        this.memTotal = memTotal;
         this.deviceName = deviceName;
     }
 
@@ -153,7 +159,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             if(session == null) {
                 listener.getLogger().println("Device was not available - flashing a new device with " + finalBuildURL);
                 try {
-                    runProject(client, finalBuildURL);
+                    runProject(client, finalBuildURL, getMemTotal());
                 } catch (APIException e) {
                     listener.getLogger().println("Failed to run project" + e.getMessage());
                     throw new IOException(e);
@@ -312,7 +318,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 throw new IOException("Device flashing failed");
             }
             listener.getLogger().println("Flashing device with " + deviceLabel);
-            runProject(client, deviceLabel);
+            runProject(client, deviceLabel, getMemTotal());
 
         }
         return device;
@@ -351,7 +357,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean runProject(APIClient client, String buildLabel) throws APIException, IOException, InterruptedException {
+    public boolean runProject(APIClient client, String buildLabel, String memTotal) throws APIException, IOException, InterruptedException {
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -375,6 +381,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             config.deleteParameter(param.getId());
         }
         config.createParameter(BUILD_URL_PARAM, buildLabel);
+        config.createParameter(MEM_TOTAL_PARAM, memTotal);
         //Search for device by name
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()).limit(0));
 
@@ -469,6 +476,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
     public String getBuildURL() {
         return buildURL;
     }
+
+    public String getMemTotal() { return memTotal; }
 
     public String getCloudURL() {
         return cloudURL;
@@ -567,6 +576,19 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return FormValidation.ok();
             } catch (Exception e) {
                 return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+            }
+        }
+
+        public FormValidation doCheckMemTotal(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                Integer memTotal = Integer.parseInt(value);
+                if (memTotal >= 0) {
+                    return FormValidation.ok();
+                } else {
+                    return FormValidation.error("Memory allocation must be 0 or greater");
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Memory allocation must be a number");
             }
         }
 
