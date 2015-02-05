@@ -57,9 +57,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private final static int POLL_INTERVAL = 10*1000;
 
-    private final static String DEVICE_DATA_JSON_FILENAME = "device_data.json";
+    private final static String DEVICE_DATA_JSON_FILENAME = "device.json";
 
-    private final static String TELEPHONY_DETAILS = "Telephony details";
+    private final static String TELEPHONY_LABEL_GROUP = "Telephony";
 
     private DescriptorImpl descriptor;
     //testdroid API endpoint
@@ -162,16 +162,17 @@ public class DeviceSessionWrapper extends BuildWrapper {
         } while (session == null && retries-- > 0);
 
         if(session == null) {
-            listener.getLogger().println("Failed to find device with label:"+finalFlashImageURL);
+            listener.getLogger().println("Failed to find device with label: " + finalBuildURL);
             throw new IOException("Device session is null");
         }
-        writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_DETAILS, DEVICE_DATA_JSON_FILENAME);
+
+        writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_LABEL_GROUP, DEVICE_DATA_JSON_FILENAME);
 
         JSONObject adb;
         JSONObject marionette;
         try {
-            listener.getLogger().println("Device session started on device: " + device.getDisplayName());
-            LOGGER.log(Level.INFO, "Device session started id: " + session.getId());
+            listener.getLogger().println("Device session started on device: " + device.getId());
+            LOGGER.log(Level.INFO, "Device session started on device: " + device.getId());
             adb = getProxy("adb", client, session);
             marionette = getProxy("marionette", client, session);
         } catch (IOException ioe) {
@@ -190,7 +191,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             @Override
             public void buildEnvVars(Map<String, String> env) {
 
-                listener.getLogger().println("Successfully started device session with ID: " + apiDeviceSession.getId());
+                listener.getLogger().println("Started device session: " + apiDeviceSession.getId());
                 env.put("SESSION_ID", Long.toString(apiDeviceSession.getId()));
 
                 // ADB environment variables
@@ -200,6 +201,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 listener.getLogger().println("ADB host: " + cloudHost);
                 env.put("ADB_HOST", cloudHost);
 
+                env.put("DEVICE_DATA", DEVICE_DATA_JSON_FILENAME);
 
                 listener.getLogger().println("Android serial: " + adbJSONObject.getString("serialId"));
                 env.put("ANDROID_SERIAL", adbJSONObject.getString("serialId"));
@@ -248,30 +250,27 @@ public class DeviceSessionWrapper extends BuildWrapper {
         URI workspaceURI = build.getWorkspace().toURI();
         FilePath deviceDataFile = new FilePath(launcher.getChannel(), workspaceURI.getPath() + "/" + jsonFileName);
 
-        try {
 
+        try {
             APIList<APIDeviceProperty> deviceProperties = client.get(String.format("/devices/%d/properties?limit=0", device.getId()), APIList.class);
 
             if (deviceProperties == null || deviceProperties.isEmpty()) {
-                listener.getLogger().println("JSON Data write - No device labels has been set ");
+                LOGGER.log(Level.INFO, "No device labels have been set for device: " + device.getId());
                 return;
             }
 
             JSONObject jsonObject = new JSONObject();
             for (APIDeviceProperty property : deviceProperties.getData()) {
                 if (labelGroupName.equals(property.getPropertyGroupName())) {
-
                     jsonObject.put(property.getName(), property.getDisplayName());
-
                 }
             }
 
             deviceDataFile.write(jsonObject.toString(), "UTF-8");
-
-            LOGGER.log(Level.INFO, "JSON Data write - File content:" + jsonObject.toString());
+            LOGGER.log(Level.INFO, "Device data: " + jsonObject.toString());
 
         } catch (APIException e) {
-            listener.getLogger().println("Got APIException when reading label information ");
+            listener.getLogger().println("Got APIException when reading device label information for device: " + device.getId());
             LOGGER.log(Level.WARNING, "APIException", e);
         }
 
@@ -491,7 +490,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             String proxyURL = String.format("/proxy-plugin/proxies?where=%s", URLEncoder.encode(String.format(queryTemplate, type, session.getId()), "UTF-8"));
             while((response = IOUtils.toString(client.get(proxyURL))) != null) {
 
-                LOGGER.log(Level.WARNING, "Testdroid " + type + " proxy response: " + response+"URL:"+proxyURL);
+                LOGGER.log(Level.WARNING, "Testdroid " + type + " proxy response: " + response + " URL: " + proxyURL);
 
                 proxyEntries = (JSONArray) JSONSerializer.toJSON(response);
                 if (proxyEntries.isEmpty()) {
