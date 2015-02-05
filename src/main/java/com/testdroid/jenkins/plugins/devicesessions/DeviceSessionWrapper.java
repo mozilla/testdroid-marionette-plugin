@@ -3,7 +3,10 @@ package com.testdroid.jenkins.plugins.devicesessions;
 import com.testdroid.api.*;
 import com.testdroid.api.model.*;
 import hudson.*;
-import hudson.model.*;
+import hudson.model.AbstractBuild;
+import hudson.model.AbstractProject;
+import hudson.model.BuildListener;
+import hudson.model.Computer;
 import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import hudson.util.FormValidation;
@@ -23,7 +26,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.*;
+import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,6 +56,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private final static int WAIT_FOR_PROXY_TIMEOUT = 5*60*1000;  //5mins
 
     private final static int POLL_INTERVAL = 10*1000;
+
+    private final static String DEVICE_DATA_JSON_FILENAME = "device_data.json";
+
+    private final static String TELEPHONY_DETAILS = "Telephony details";
 
     private DescriptorImpl descriptor;
     //testdroid API endpoint
@@ -152,6 +161,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
         } while (session == null && retries-- > 0);
 
+        if(session == null) {
+            listener.getLogger().println("Failed to find device with label:"+finalFlashImageURL);
+            throw new IOException("Device session is null");
+        }
+        writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_DETAILS, DEVICE_DATA_JSON_FILENAME);
 
         JSONObject adb;
         JSONObject marionette;
@@ -164,6 +178,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             listener.getLogger().println("Failed to fetch proxy entries " + ioe.getMessage());
             releaseDeviceSession(listener, client, session);
             throw ioe;
+        }
+        catch (InterruptedException ie) {
+            listener.getLogger().println("Failed to fetch proxy entries " + ie.getMessage());
+            releaseDeviceSession(listener, client, session);
+            throw ie;
         }
 
         return new TestdroidSessionEnvironment(client, session, adb, marionette) {
@@ -208,6 +227,56 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
         };
     }
+
+    /**
+     * Write the device label data into the file in json format.
+     *
+     * @param build
+     * @param launcher
+     * @param listener
+     * @param client
+     * @param device
+     * @param labelGroupName
+     * @param jsonFileName
+     * @throws InterruptedException
+     * @throws IOException
+     */
+    private void writeDeviceDataJSON(final AbstractBuild build, final Launcher launcher, BuildListener listener,
+                                    APIClient client, APIDevice device, String labelGroupName, String jsonFileName)
+            throws InterruptedException, IOException {
+
+        URI workspaceURI = build.getWorkspace().toURI();
+        FilePath deviceDataFile = new FilePath(launcher.getChannel(), workspaceURI.getPath() + "/" + jsonFileName);
+
+        try {
+
+            APIList<APIDeviceProperty> deviceProperties = client.get(String.format("/devices/%d/properties?limit=0", device.getId()), APIList.class);
+
+            if (deviceProperties == null || deviceProperties.isEmpty()) {
+                listener.getLogger().println("JSON Data write - No device labels has been set ");
+                return;
+            }
+
+            JSONObject jsonObject = new JSONObject();
+            for (APIDeviceProperty property : deviceProperties.getData()) {
+                if (labelGroupName.equals(property.getPropertyGroupName())) {
+
+                    jsonObject.put(property.getName(), property.getDisplayName());
+
+                }
+            }
+
+            deviceDataFile.write(jsonObject.toString(), "UTF-8");
+
+            LOGGER.log(Level.INFO, "JSON Data write - File content:" + jsonObject.toString());
+
+        } catch (APIException e) {
+            listener.getLogger().println("Got APIException when reading label information ");
+            LOGGER.log(Level.WARNING, "APIException", e);
+        }
+
+    }
+
     private abstract class TestdroidSessionEnvironment extends Environment {
         protected APIClient apiClient;
         protected APIDeviceSession apiDeviceSession;
@@ -315,11 +384,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //find device which is online
         APIDevice device = null;
         for(APIDevice d : devices.getEntity().getData()) {
-            if(d.isOnline()) {
+            if(d.isOnline() && !d.isLocked()) {
                 device = d;
                 break;
             }
         }
+
         if(device == null) {
             throw new IOException("Unable find device by name: " + getDeviceName());
         }
@@ -337,7 +407,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 Thread.sleep(10000);
 
                 if (waitUntil < Calendar.getInstance().getTimeInMillis()) {
-                    testRun.abort();
+                    //abort run if it's still in WAITING state
+                    testRun.refresh();
+                    if(!testRun.getState().equals(APITestRun.State.WAITING)) {
+                        testRun.abort();
+                    }
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
                     return false;
                 }
