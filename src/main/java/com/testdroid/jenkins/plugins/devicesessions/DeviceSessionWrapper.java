@@ -168,7 +168,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         } while (session == null && retries-- > 0);
 
         if(session == null) {
-            listener.getLogger().println("Failed to find device with label:"+finalFlashImageURL);
+            listener.getLogger().println("Failed to find device with label:"+finalBuildURL);
             throw new IOException("Device session is null");
         }
         writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_DETAILS, DEVICE_DATA_JSON_FILENAME);
