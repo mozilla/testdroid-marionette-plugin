@@ -59,8 +59,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private final static String DEVICE_DATA_JSON_FILENAME = "device.json";
 
-    private final static String TELEPHONY_LABEL_GROUP = "Telephony";
-
     private DescriptorImpl descriptor;
     //testdroid API endpoint
     private String cloudURL;
@@ -166,7 +164,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException("Device session is null");
         }
 
-        writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_LABEL_GROUP, DEVICE_DATA_JSON_FILENAME);
+        writeDeviceDataJSON(build, launcher, listener, client, device, DEVICE_DATA_JSON_FILENAME);
 
         JSONObject adb;
         JSONObject marionette;
@@ -244,7 +242,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @throws IOException
      */
     private void writeDeviceDataJSON(final AbstractBuild build, final Launcher launcher, BuildListener listener,
-                                    APIClient client, APIDevice device, String labelGroupName, String jsonFileName)
+                                    APIClient client, APIDevice device, String jsonFileName)
             throws InterruptedException, IOException {
 
         URI workspaceURI = build.getWorkspace().toURI();
@@ -261,9 +259,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
             JSONObject jsonObject = new JSONObject();
             for (APIDeviceProperty property : deviceProperties.getData()) {
-                if (labelGroupName.equals(property.getPropertyGroupName())) {
-                    jsonObject.put(property.getName(), property.getDisplayName());
+                JSONArray labels;
+                String groupName = property.getPropertyGroupName();
+                if (jsonObject.containsKey(groupName.toLowerCase())) {
+                    labels = jsonObject.getJSONArray(groupName.toLowerCase());
+                } else {
+                    labels = new JSONArray();
                 }
+                labels.add(property.getName());
+                jsonObject.put(groupName.toLowerCase(), labels);
             }
 
             deviceDataFile.write(jsonObject.toString(), "UTF-8");
