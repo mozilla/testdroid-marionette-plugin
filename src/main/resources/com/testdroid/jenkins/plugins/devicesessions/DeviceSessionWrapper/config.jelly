@@ -16,5 +16,10 @@
     <f:entry title="${%Build URL}" field="buildURL">
         <f:textbox name="buildURL" value="${instance.buildURL}" />
     </f:entry>
+    <f:advanced>
+        <f:entry title="${%Throttle memory}" field="memTotal">
+            <f:number default="0" name="memTotal" value="${instance.memTotal}" />
+        </f:entry>
+    </f:advanced>
 
 </j:jelly>
