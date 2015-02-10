@@ -123,14 +123,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         final String cloudHost = new URL(cloudURL).getHost();
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
-        String finalBuildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
+        String buildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
 
 
-        //Look for device having "Build Identifier" label group with label {finalBuildURL}
+        //Look for device having "Build Identifier" label group with label {buildIdentifier}
         //if not matching device is not found run "reflash" project and look again.
         APIDevice device = null;
         try {
-            device = getDeviceByLabel(client, finalBuildIdentifier, finalBuildURL, getMemTotal(), listener);
+            device = getDeviceByLabel(client, buildIdentifier, finalBuildURL, getMemTotal(), listener);
         } catch (APIException e) {
             listener.getLogger().println("Failed to retrieve device by build id " + e.getMessage());
             throw new IOException(e);
@@ -157,9 +157,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
             //If session can't be created, run flash project again
             if(session == null) {
-                listener.getLogger().println("Device was not available - flashing a new device with " + finalBuildURL +" and RAM set to "+getMemTotal());
+                listener.getLogger().println("Device was not available");
                 try {
-                    runProject(client, finalBuildURL, getMemTotal());
+                    runProject(listener, client, finalBuildURL, getMemTotal());
                 } catch (APIException e) {
                     listener.getLogger().println("Failed to run project" + e.getMessage());
                     throw new IOException(e);
@@ -168,7 +168,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         } while (session == null && retries-- > 0);
 
         if(session == null) {
-            listener.getLogger().println("Failed to find device with label:"+finalBuildIdentifier);
+            listener.getLogger().println("Failed to find device with label: " + buildIdentifier);
             throw new IOException("Device session is null");
         }
 
@@ -243,7 +243,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @param listener
      * @param client
      * @param device
-     * @param labelGroupName
      * @param jsonFileName
      * @throws InterruptedException
      * @throws IOException
@@ -307,25 +306,23 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * build seach device again.
 
      * @param client
-     * @param finalBuildIdentifier
-     * @param finalBuildURL
+     * @param buildIdentifier
+     * @param buildURL
      * @param memTotal
      * @param listener  @return
      * @throws APIException
      * @throws IOException
      * @throws InterruptedException
      */
-    private APIDevice getDeviceByLabel(APIClient client, String finalBuildIdentifier, String finalBuildURL, String memTotal, BuildListener listener) throws APIException, IOException, InterruptedException {
+    private APIDevice getDeviceByLabel(APIClient client, String buildIdentifier, String buildURL, String memTotal, BuildListener listener) throws APIException, IOException, InterruptedException {
         APIDevice device;
         int maxRetries = FLASH_RETRIES;
-        while( (device = searchDeviceByLabel(client, finalBuildIdentifier)) == null) {
+        while( (device = searchDeviceByLabel(client, buildIdentifier)) == null) {
             if(maxRetries-- < 0) {
                 listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
-            listener.getLogger().println("Flashing device with " + finalBuildURL);
-            runProject(client, finalBuildURL, memTotal);
-
+            runProject(listener, client, buildURL, memTotal);
         }
         return device;
     }
@@ -363,7 +360,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean runProject(APIClient client, String buildLabel, String memTotal) throws APIException, IOException, InterruptedException {
+    public boolean runProject(BuildListener listener, APIClient client, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+        String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
+        listener.getLogger().println("Flashing device with " + buildURL + memoryThrottled);
+
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -386,7 +386,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             APITestRunParameter param = params.getEntity().get(i);
             config.deleteParameter(param.getId());
         }
-        config.createParameter(BUILD_URL_PARAM, buildLabel);
+        config.createParameter(BUILD_URL_PARAM, buildURL);
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
         //Search for device by name
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder().search(getDeviceName()).limit(0));
@@ -412,7 +412,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //Start test run
         client.post(String.format("/runs/%s/start", testRun.getId()),usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
-        long waitUntil = Calendar.getInstance().getTimeInMillis()+FLASH_TIMEOUT;
+        long waitUntil = Calendar.getInstance().getTimeInMillis() + FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
 
             try {
@@ -444,7 +444,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
 
         if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find label group: " + BUILD_IDENTIFIER_LABEL_GROUP);
+            LOGGER.log(Level.SEVERE, "Unable to find label group: " + BUILD_IDENTIFIER_LABEL_GROUP);
             return null;
         }
 
@@ -454,7 +454,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 .getDevicePropertiesResource(new APIQueryBuilder().search(buildLabel));
         APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
         if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find label: " + buildLabel);
+            LOGGER.log(Level.SEVERE, "Unable to find label: " + buildLabel);
             return null;
         }
 
@@ -468,10 +468,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         //get the first device with specific label
         for (APIDevice device : devicesResource.getEntity().getData()) {
-            LOGGER.log(Level.INFO, String.format("Found device %s with label %s - Device ID:%d ", device.getDisplayName(), buildLabel, device.getId()));
+            LOGGER.log(Level.INFO, String.format("Found device %s with label %s and ID %d ", device.getDisplayName(), buildLabel, device.getId()));
             return device;
         }
-        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_IDENTIFIER_LABEL_GROUP));
+        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group: %s)", buildLabel, BUILD_IDENTIFIER_LABEL_GROUP));
         return null;
     }
 
@@ -483,7 +483,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
         return buildURL;
     }
 
-    public String getMemTotal() { return memTotal; }
+    public String getMemTotal() {
+        return memTotal != null ? memTotal : "0";
+    }
 
     public String getCloudURL() {
         return cloudURL;
