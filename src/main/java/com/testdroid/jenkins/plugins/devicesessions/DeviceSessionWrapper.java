@@ -40,7 +40,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private static final long serialVersionUID = 1L;
 
     //device label group which contains all the build version labels
-    private final static String BUILD_VERSION_LABEL_GROUP = "Build version";
+    private final static String BUILD_IDENTIFIER_LABEL_GROUP = "Build Identifier";
 
     //default flash project name in testdroid TODO: add it as parameter
     private final static String FLASH_PROJECT_NAME = "flash-fxos";
@@ -125,14 +125,16 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         final String cloudHost = new URL(cloudURL).getHost();
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
+        String finalBuildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
 
-        //Look for device having "Build version" label group with label {finalBuildURL}
+
+        //Look for device having "Build Identifier" label group with label {finalBuildURL}
         //if not matching device is not found run "reflash" project and look again.
         APIDevice device = null;
         try {
-            device = getDeviceByLabel(client, finalBuildURL, listener);
+            device = getDeviceByLabel(client, finalBuildIdentifier, finalBuildURL, getMemTotal(), listener);
         } catch (APIException e) {
-            listener.getLogger().println("Failed to retrieve device by build version " + e.getMessage());
+            listener.getLogger().println("Failed to retrieve device by build id " + e.getMessage());
             throw new IOException(e);
         }
 
@@ -157,7 +159,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
             //If session can't be created, run flash project again
             if(session == null) {
-                listener.getLogger().println("Device was not available - flashing a new device with " + finalBuildURL);
+                listener.getLogger().println("Device was not available - flashing a new device with " + finalBuildURL +" and RAM set to "+getMemTotal());
                 try {
                     runProject(client, finalBuildURL, getMemTotal());
                 } catch (APIException e) {
@@ -168,7 +170,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         } while (session == null && retries-- > 0);
 
         if(session == null) {
-            listener.getLogger().println("Failed to find device with label:"+finalBuildURL);
+            listener.getLogger().println("Failed to find device with label:"+finalBuildIdentifier);
             throw new IOException("Device session is null");
         }
         writeDeviceDataJSON(build, launcher, listener, client, device, TELEPHONY_DETAILS, DEVICE_DATA_JSON_FILENAME);
@@ -184,8 +186,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             listener.getLogger().println("Failed to fetch proxy entries " + ioe.getMessage());
             releaseDeviceSession(listener, client, session);
             throw ioe;
-        }
-        catch (InterruptedException ie) {
+        } catch (InterruptedException ie) {
             listener.getLogger().println("Failed to fetch proxy entries " + ie.getMessage());
             releaseDeviceSession(listener, client, session);
             throw ie;
@@ -301,24 +302,26 @@ public class DeviceSessionWrapper extends BuildWrapper {
     /**
      * Search device by label from "Build Version" label group. If device is not available flash device with specific
      * build seach device again.
+
      * @param client
-     * @param deviceLabel
-     * @param listener
-     * @return
+     * @param finalBuildIdentifier
+     * @param finalBuildURL
+     * @param memTotal
+     * @param listener  @return
      * @throws APIException
      * @throws IOException
      * @throws InterruptedException
      */
-    private APIDevice getDeviceByLabel(APIClient client, String deviceLabel, BuildListener listener) throws APIException, IOException, InterruptedException {
+    private APIDevice getDeviceByLabel(APIClient client, String finalBuildIdentifier, String finalBuildURL, String memTotal, BuildListener listener) throws APIException, IOException, InterruptedException {
         APIDevice device;
         int maxRetries = FLASH_RETRIES;
-        while( (device = searchDeviceByLabel(client, deviceLabel)) == null) {
+        while( (device = searchDeviceByLabel(client, finalBuildIdentifier)) == null) {
             if(maxRetries-- < 0) {
                 listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
-            listener.getLogger().println("Flashing device with " + deviceLabel);
-            runProject(client, deviceLabel, getMemTotal());
+            listener.getLogger().println("Flashing device with " + finalBuildURL);
+            runProject(client, finalBuildURL, memTotal);
 
         }
         return device;
@@ -434,11 +437,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     public APIDevice searchDeviceByLabel(APIClient client, String buildLabel) throws APIException {
         APIListResource<APILabelGroup> labelGroupsResource = client
-                .getLabelGroups(new APIQueryBuilder().search(BUILD_VERSION_LABEL_GROUP));
+                .getLabelGroups(new APIQueryBuilder().search(BUILD_IDENTIFIER_LABEL_GROUP));
         APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
 
         if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find label group: " + BUILD_VERSION_LABEL_GROUP);
+            LOGGER.log(Level.SEVERE, "Unable find label group: " + BUILD_IDENTIFIER_LABEL_GROUP);
             return null;
         }
 
@@ -465,7 +468,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             LOGGER.log(Level.INFO, String.format("Found device %s with label %s - Device ID:%d ", device.getDisplayName(), buildLabel, device.getId()));
             return device;
         }
-        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_VERSION_LABEL_GROUP));
+        LOGGER.log(Level.INFO, String.format("Unable to find any device with label %s (label group:%s)", buildLabel, BUILD_IDENTIFIER_LABEL_GROUP));
         return null;
     }
 
