@@ -191,33 +191,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw ie;
         }
 
+        listener.getLogger().println("Started device session: " + session.getId());
+        listener.getLogger().println("ADB port: " + adb.getString("port"));
+        listener.getLogger().println("ADB host: " + cloudHost);
+        listener.getLogger().println("Android serial: " + adb.getString("serialId"));
+        listener.getLogger().println("Marionette port: " + marionette.getString("port"));
+        listener.getLogger().println("Marionette host: " + cloudHost);
+
         return new TestdroidSessionEnvironment(client, session, adb, marionette) {
 
             @Override
             public void buildEnvVars(Map<String, String> env) {
-
-                listener.getLogger().println("Started device session: " + apiDeviceSession.getId());
                 env.put("SESSION_ID", Long.toString(apiDeviceSession.getId()));
-
-                // ADB environment variables
-                listener.getLogger().println("ADB port: " + adbJSONObject.getString("port"));
                 env.put("ADB_PORT", adbJSONObject.getString("port"));
-
-                listener.getLogger().println("ADB host: " + cloudHost);
                 env.put("ADB_HOST", cloudHost);
-
                 env.put("DEVICE_DATA", DEVICE_DATA_JSON_FILENAME);
-
-                listener.getLogger().println("Android serial: " + adbJSONObject.getString("serialId"));
                 env.put("ANDROID_SERIAL", adbJSONObject.getString("serialId"));
-
-                // Marionette environment variables
-                listener.getLogger().println("Marionette port: " + marionetteJSONObject.getString("port"));
                 env.put("MARIONETTE_PORT", marionetteJSONObject.getString("port"));
-
-                listener.getLogger().println("Marionette host: " + cloudHost);
                 env.put("MARIONETTE_HOST", cloudHost);
-
             }
 
             @Override
