@@ -256,18 +256,18 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
             JSONObject jsonObject = new JSONObject();
             for (APIDeviceProperty property : deviceProperties.getData()) {
-                JSONArray labels;
                 String groupName = property.getPropertyGroupName();
-                if (jsonObject.containsKey(groupName.toLowerCase())) {
-                    labels = jsonObject.getJSONArray(groupName.toLowerCase());
+                String labelName = property.getDisplayName();
+                if (jsonObject.containsKey(groupName)) {
+                    JSONArray labels = jsonObject.getJSONArray(groupName);
+                    labels.add(labelName);
+                    jsonObject.put(groupName, labels);
                 } else {
-                    labels = new JSONArray();
+                    jsonObject.put(groupName, labelName);
                 }
-                labels.add(property.getName());
-                jsonObject.put(groupName.toLowerCase(), labels);
             }
 
-            deviceDataFile.write(jsonObject.toString(), "UTF-8");
+            deviceDataFile.write(jsonObject.toString(2), "UTF-8");
             LOGGER.log(Level.INFO, "Device data: " + jsonObject.toString());
 
         } catch (APIException e) {
