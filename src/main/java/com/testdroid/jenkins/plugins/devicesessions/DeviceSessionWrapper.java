@@ -12,6 +12,7 @@ import hudson.tasks.BuildWrapperDescriptor;
 import hudson.util.FormValidation;
 import jenkins.model.Jenkins;
 import net.sf.json.JSONArray;
+import net.sf.json.JSONException;
 import net.sf.json.JSONObject;
 import net.sf.json.JSONSerializer;
 import org.apache.commons.io.IOUtils;
@@ -259,7 +260,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 String groupName = property.getPropertyGroupName();
                 String labelName = property.getDisplayName();
                 if (jsonObject.containsKey(groupName)) {
-                    JSONArray labels = jsonObject.getJSONArray(groupName);
+                    JSONArray labels = new JSONArray();
+                    try {
+                        labels.addAll(jsonObject.getJSONArray(groupName));
+                    } catch (JSONException e) {
+                        labels.add(jsonObject.get(groupName));
+                    }
                     labels.add(labelName);
                     jsonObject.put(groupName, labels);
                 } else {
