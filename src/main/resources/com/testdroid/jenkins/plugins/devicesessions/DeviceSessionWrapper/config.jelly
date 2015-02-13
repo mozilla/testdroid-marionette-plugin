@@ -1,25 +1,58 @@
 <j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout"
          xmlns:t="/lib/hudson" xmlns:f="/lib/form">
 
-    <f:entry title="${%API endpoint}" field="endPointURL">
-   		<f:textbox name="cloudURL" value="${instance.cloudURL}" />
+    <f:entry title="${%API endpoint}"
+             field="endPointURL">
+        <f:textbox name="cloudURL"
+                   value="${instance.cloudURL}" />
     </f:entry>
-    <f:entry title="${%Username}" field="username">
-        <f:textbox name="username" value="${instance.username}" />
+    <f:entry title="${%Username}"
+             field="username">
+        <f:textbox name="username"
+                   value="${instance.username}" />
     </f:entry>
-    <f:entry title="${%Password}" field="password">
-        <f:password name="password" value="${instance.password}" />
+    <f:entry title="${%Password}"
+             field="password">
+        <f:password name="password"
+                    value="${instance.password}" />
     </f:entry>
-    <f:entry title="${%Device name}" field="deviceName">
-        <f:textbox name="deviceName" value="${instance.deviceName}" />
+    <f:entry title="${%Device name}"
+             field="deviceName">
+        <f:textbox name="deviceName"
+                   value="${instance.deviceName}" />
     </f:entry>
-    <f:entry title="${%Build URL}" field="buildURL">
-        <f:textbox name="buildURL" value="${instance.buildURL}" />
+    <f:entry title="${%Build URL}"
+             field="buildURL">
+        <f:textbox name="buildURL"
+                   value="${instance.buildURL}" />
     </f:entry>
-    <f:advanced>
-        <f:entry title="${%Throttle memory}" field="memTotal">
-            <f:number default="0" name="memTotal" value="${instance.memTotal}" />
-        </f:entry>
-    </f:advanced>
+    <f:entry title="${%Throttle memory}"
+             field="memTotal">
+        <f:number default="0"
+                  name="memTotal"
+                  value="${instance.memTotal}" />
+    </f:entry>
+    <f:entry title="${%Device filters}">
+        <f:repeatable var="deviceFilter"
+                      items="${instance.deviceFilters}"
+                      name="deviceFilters"
+                      add="${%Add filter}">
+            <table width="100%">
+                <f:entry title="${%Label}"
+                         field="label">
+                    <f:textbox value="${deviceFilter.label}" />
+                </f:entry>
+                <f:entry title="${%Value}"
+                         field="value">
+                    <f:textbox value="${deviceFilter.value}" />
+                </f:entry>
+                <f:entry>
+                    <div align="right">
+                        <f:repeatableDeleteButton/>
+                    </div>
+                </f:entry>
+            </table>
+        </f:repeatable>
+    </f:entry>
 
 </j:jelly>
