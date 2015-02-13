@@ -87,6 +87,20 @@ public class DeviceSessionWrapper extends BuildWrapper {
         this.deviceName = deviceName;
     }
 
+    private APIClient getAPIClient(String cloudURL, String username, String password, ProxyConfiguration proxyConfiguration) {
+        APIClient client = null;
+        if (proxyConfiguration != null) {
+            HttpHost proxy = new HttpHost(proxyConfiguration.name, proxyConfiguration.port);
+            //TODO: Support proxy authentication
+            //TODO: Consider no_proxy hosts
+
+            client = new DefaultAPIClient(cloudURL, username, password, proxy, false);
+        } else {
+            client = new DefaultAPIClient(cloudURL, username, password);
+        }
+        return client;
+    }
+
     /**
      * Sets up build environment
      * <p/>
@@ -98,18 +112,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         String cloudURL = applyMacro(build, listener, getCloudURL());
 
-        APIClient client = null;
+
         ProxyConfiguration p = Jenkins.getInstance().proxy;
-        if (p != null) {
-            HttpHost proxy = new HttpHost(p.name, p.port);
-            //TODO: Support proxy authentication
-            //TODO: Consider no_proxy hosts
-            listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername() + " using proxy " + proxy.toString());
-            client = new DefaultAPIClient(cloudURL, getUsername(), getPassword(), proxy, false);
-        } else {
-            listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername());
-            client = new DefaultAPIClient(cloudURL, getUsername(), getPassword());
-        }
+        listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername() + p != null ? " using proxy " + p.toString():"");
+
+        APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), p);
 
         APIUser user = null;
 
@@ -220,7 +227,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     LOGGER.log(Level.WARNING, "Session was not initialized, skipping session release");
                     return true;
                 }
-                releaseDeviceSession(listener, apiClient, apiDeviceSession);
+                try {
+                    releaseDeviceSession(listener, apiClient, apiDeviceSession);
+                } catch (IOException e) {
+                    //Recreate API client as tokens(auth or/and refresh tokens might be expired
+                    final APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
+
+                    releaseDeviceSession(listener, client, apiDeviceSession);
+
+                }
                 return true;
             }
         };
