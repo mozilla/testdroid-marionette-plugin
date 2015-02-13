@@ -135,7 +135,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException(e);
         }
 
-        listener.getLogger().println("Requesting device session for " + device.getDisplayName());
+        listener.getLogger().println("Requesting session for device with name: " + device.getDisplayName());
 
         Map<String, String> deviceSessionsParams = new HashMap<String, String>();
         deviceSessionsParams.put("deviceModelId", device.getId().toString());
@@ -167,7 +167,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         } while (session == null && retries-- > 0);
 
         if(session == null) {
-            listener.getLogger().println("Failed to find device with label: " + buildIdentifier);
+            listener.getLogger().println("Failed to find device!");
             throw new IOException("Device session is null");
         }
 
@@ -176,8 +176,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         JSONObject adb;
         JSONObject marionette;
         try {
-            listener.getLogger().println("Device session started on device: " + device.getId());
-            LOGGER.log(Level.INFO, "Device session started on device: " + device.getId());
+            listener.getLogger().println("Device session started on device model ID: " + device.getId());
+            LOGGER.log(Level.INFO, "Device session started on device model ID: " + device.getId());
             adb = getProxy("adb", client, session);
             marionette = getProxy("marionette", client, session);
         } catch (IOException ioe) {
@@ -190,7 +190,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw ie;
         }
 
-        listener.getLogger().println("Started device session: " + session.getId());
+        listener.getLogger().println("Started device session with ID: " + session.getId());
         listener.getLogger().println("ADB port: " + adb.getString("port"));
         listener.getLogger().println("ADB host: " + cloudHost);
         listener.getLogger().println("Android serial: " + adb.getString("serialId"));
@@ -249,7 +249,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             APIList<APIDeviceProperty> deviceProperties = client.get(String.format("/devices/%d/properties?limit=0", device.getId()), APIList.class);
 
             if (deviceProperties == null || deviceProperties.isEmpty()) {
-                LOGGER.log(Level.INFO, "No device labels have been set for device: " + device.getId());
+                LOGGER.log(Level.INFO, "No device labels have been set for device with ID: " + device.getId());
                 return;
             }
 
@@ -275,7 +275,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             LOGGER.log(Level.INFO, "Device data: " + jsonObject.toString());
 
         } catch (APIException e) {
-            listener.getLogger().println("Got APIException when reading device label information for device: " + device.getId());
+            listener.getLogger().println("Got APIException when reading device label information for device with ID: " + device.getId());
             LOGGER.log(Level.WARNING, "APIException", e);
         }
 
@@ -389,20 +389,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         config.createParameter(BUILD_URL_PARAM, buildURL);
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
 
-        //search for devices
-        APIListResource<APIDevice> devices = searchDevices(client, filters);
-
-        if(devices.getTotal() <1) {
-            throw new IOException("Unable find device!");
-        }
-        //find device which is online
-        APIDevice device = null;
-        for(APIDevice d : devices.getEntity().getData()) {
-            if(d.isOnline() && !d.isLocked()) {
-                device = d;
-                break;
-            }
-        }
+        APIDevice device = searchDevice(client, filters);
 
         if(device == null) {
             throw new IOException("Unable find device!");
@@ -441,18 +428,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
     }
 
     public APIDevice searchDevice(APIClient client, ArrayList<DeviceFilter> filters) throws APIException {
-        APIListResource<APIDevice> devices = searchDevices(client, filters);
-
-        //get the first device with specific label
-        for (APIDevice device : devices.getEntity().getData()) {
-            LOGGER.log(Level.INFO, String.format("Found device: %s with ID: %d ", device.getDisplayName(), device.getId()));
-            return device;
-        }
-        LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
-        return null;
-    }
-
-    public APIListResource<APIDevice> searchDevices(APIClient client, ArrayList<DeviceFilter> filters) throws APIException {
         List<Long> labelIds = new ArrayList<Long>();
 
         for(DeviceFilter f:filters) {
@@ -463,7 +438,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getLabelGroups(new APIQueryBuilder().search(f.label));
             APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
             if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
-                LOGGER.log(Level.SEVERE, "Unable to find label group: " + f.label);
+                LOGGER.log(Level.WARNING, "Unable to find label group: " + f.label);
                 return null;
             }
             APILabelGroup labelGroup = labelGroupsList.get(0);
@@ -473,7 +448,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getDevicePropertiesResource(new APIQueryBuilder().search(f.value));
             APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
             if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
-                LOGGER.log(Level.SEVERE, "Unable to find label: " + f.value);
+                LOGGER.log(Level.WARNING, "Unable to find label: " + f.value);
                 return null;
             }
 
@@ -485,7 +460,16 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder()
                 .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
         LOGGER.log(Level.INFO, String.format("Found %s device(s) with label(s)", devices.getTotal()));
-        return devices;
+
+        //get the first online device with specific label
+        for (APIDevice d : devices.getEntity().getData()) {
+            if(d.isOnline() && !d.isLocked()) {
+                LOGGER.log(Level.INFO, String.format("Found device: %s with ID: %d ", d.getDisplayName(), d.getId()));
+                return d;
+            }
+        }
+        LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
+        return null;
     }
 
     public String getDeviceName() {
