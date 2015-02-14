@@ -116,7 +116,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
 
         ProxyConfiguration p = Jenkins.getInstance().proxy;
-        listener.getLogger().println("Connecting to " + cloudURL + " as " + getUsername() + p != null ? " using proxy " + p.toString():"");
+        listener.getLogger().println("Connecting to " + getCloudURL() + " as " + getUsername() + (p != null ? " using proxy " + p.toString():""));
 
         APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), p);
 
@@ -165,7 +165,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             if(session == null) {
                 listener.getLogger().println("Device was not available");
                 try {
-                    runProject(listener, client, getDeviceFilters(), finalBuildURL, getMemTotal());
+                    ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
+                    if(getDeviceFilters() != null ) {
+                        searchFilters = (ArrayList<DeviceFilter>) getDeviceFilters().clone();
+                    }
+                    runProject(listener, client, searchFilters, finalBuildURL, getMemTotal());
                 } catch (APIException e) {
                     listener.getLogger().println("Failed to run project" + e.getMessage());
                     throw new IOException(e);
@@ -227,12 +231,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     return true;
                 }
                 try {
-                    releaseDeviceSession(listener, apiClient, apiDeviceSession);
+                    releaseDeviceSession(listener, getApiClient(), getApiDeviceSession());
                 } catch (IOException e) {
                     //Recreate API client as tokens(auth or/and refresh tokens might be expired
                     final APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
 
-                    releaseDeviceSession(listener, client, apiDeviceSession);
+                    releaseDeviceSession(listener, client, getApiDeviceSession());
 
                 }
                 return true;
@@ -297,10 +301,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
     }
 
     private abstract class TestdroidSessionEnvironment extends Environment {
-        protected APIClient apiClient;
-        protected APIDeviceSession apiDeviceSession;
-        protected JSONObject adbJSONObject;
-        protected JSONObject marionetteJSONObject;
+        protected final APIClient apiClient;
+        protected final APIDeviceSession apiDeviceSession;
+        protected final JSONObject adbJSONObject;
+        protected final JSONObject marionetteJSONObject;
 
         public TestdroidSessionEnvironment(APIClient apiClient, APIDeviceSession apiDeviceSession, JSONObject adbJSONObject, JSONObject marionetteJSONObject) {
             this.apiClient = apiClient;
@@ -309,6 +313,21 @@ public class DeviceSessionWrapper extends BuildWrapper {
             this.marionetteJSONObject = marionetteJSONObject;
         }
 
+        public APIClient getApiClient() {
+            return apiClient;
+        }
+
+        public APIDeviceSession getApiDeviceSession() {
+            return apiDeviceSession;
+        }
+
+        public JSONObject getAdbJSONObject() {
+            return adbJSONObject;
+        }
+
+        public JSONObject getMarionetteJSONObject() {
+            return marionetteJSONObject;
+        }
     }
 
     /**
@@ -328,16 +347,23 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private APIDevice getDevice(APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal, BuildListener listener) throws APIException, IOException, InterruptedException {
         APIDevice device;
         int maxRetries = FLASH_RETRIES;
-        ArrayList<DeviceFilter> searchFilters = (ArrayList<DeviceFilter>) filters.clone();
+
+        ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
+        ArrayList<DeviceFilter> runProjectDeviceFilters = new ArrayList<DeviceFilter>();
+
+        if(filters != null ) {
+            searchFilters = (ArrayList<DeviceFilter>) filters.clone();
+            runProjectDeviceFilters = (ArrayList<DeviceFilter>) filters.clone();
+        }
         //look for device having "Build Identifier" label with value {buildIdentifier}
         searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
-        while( (device = searchDevice(client, searchFilters)) == null) {
+        while( (device = searchDevice(client, searchFilters, false)) == null) {
             if(maxRetries-- < 0) {
                 listener.getLogger().println(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
             }
             //if not matching device is not found run flash project
-            runProject(listener, client, filters, buildURL, memTotal);
+            runProject(listener, client, runProjectDeviceFilters, buildURL, memTotal);
         }
         return device;
     }
@@ -404,7 +430,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         config.createParameter(BUILD_URL_PARAM, buildURL);
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
 
-        APIDevice device = searchDevice(client, filters);
+        APIDevice device = searchDevice(client, filters, true);
 
         if(device == null) {
             throw new IOException("Unable find device!");
@@ -442,7 +468,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         return true;
     }
 
-    public APIDevice searchDevice(APIClient client, ArrayList<DeviceFilter> filters) throws APIException {
+    public APIDevice searchDevice(APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
         List<Long> labelIds = new ArrayList<Long>();
 
         for(DeviceFilter f:filters) {
@@ -470,18 +496,30 @@ public class DeviceSessionWrapper extends BuildWrapper {
             APIDeviceProperty deviceProperty = devicePropertiesList.get(0);
             labelIds.add(deviceProperty.getId());
         }
-
-        LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
-        APIListResource<APIDevice> devices = client.getDevices(new APIDeviceQueryBuilder()
-                .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
-        LOGGER.log(Level.INFO, String.format("Found %s device(s) with label(s)", devices.getTotal()));
-
+        APIListResource<APIDevice> devices = null;
+        if(labelIds.size() == 0) {
+            devices = client.getDevices();
+            LOGGER.log(Level.INFO, String.format("Found %s device(s)", devices.getTotal()));
+        } else {
+            LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
+            devices = client.getDevices(new APIDeviceQueryBuilder()
+                    .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
+            LOGGER.log(Level.INFO, String.format("Found %s device(s) with label(s)", devices.getTotal()));
+        }
         //get the first online device with specific label
+        //if lockedDeviceAllowed is true then return any locked device if unlocked can't be found
+        APIDevice lockedDevice = null;
         for (APIDevice d : devices.getEntity().getData()) {
+
             if(d.isOnline() && !d.isLocked()) {
                 LOGGER.log(Level.INFO, String.format("Found device: %s with ID: %d ", d.getDisplayName(), d.getId()));
                 return d;
+            } else if(d.isOnline() && d.isLocked()) {
+                lockedDevice = d;
             }
+        }
+        if(lockedDeviceAllowed) {
+            return lockedDevice;
         }
         LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
         return null;
