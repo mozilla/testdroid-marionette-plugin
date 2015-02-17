@@ -1,4 +1,4 @@
-package com.testdroid.jenkins.plugins.devicesessions;
+package jenkins.plugins.testdroid;
 
 import hudson.model.TaskListener;
 

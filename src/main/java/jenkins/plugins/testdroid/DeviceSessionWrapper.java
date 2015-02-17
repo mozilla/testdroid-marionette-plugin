@@ -1,4 +1,4 @@
-package com.testdroid.jenkins.plugins.devicesessions;
+package jenkins.plugins.testdroid;
 
 import com.testdroid.api.*;
 import com.testdroid.api.model.*;
@@ -61,42 +61,34 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private final static String DEVICE_DATA_JSON_FILENAME = "device.json";
 
-    private DescriptorImpl descriptor;
-    //testdroid API endpoint
-    private String cloudURL;
     //location of device image
     private String buildURL;
     //total memory to allocate
     private String memTotal;
-    //testdroid username
-    private String username;
-    //testdroid password
-    private String password;
     //device filters
     private ArrayList<DeviceFilter> deviceFilters = new ArrayList<DeviceFilter>();
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
-    public DeviceSessionWrapper(String cloudURL, String username, String password, String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters) {
-        this.cloudURL = cloudURL;
-        this.username = username;
-        this.password = password;
+    public DeviceSessionWrapper(String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters) {
         this.buildURL = buildURL;
         this.memTotal = memTotal;
         this.deviceFilters = deviceFilters;
     }
 
-    private APIClient getAPIClient(TestdroidLogger logger, String cloudURL, String username, String password, ProxyConfiguration proxyConfiguration) {
-        logger.info("Connecting to " + getCloudURL() + " as " + getUsername() + (proxyConfiguration != null ? " using proxy " + proxyConfiguration.toString() : ""));
+    private APIClient getAPIClient(TestdroidLogger logger) {
+        DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
+        ProxyConfiguration proxyConfiguration = Jenkins.getInstance().proxy;
+        logger.info("Connecting to " + descriptor.endPointURL + " as " + descriptor.username + (proxyConfiguration != null ? " using proxy " + proxyConfiguration.toString() : ""));
         APIClient client = null;
         if (proxyConfiguration != null) {
             HttpHost proxy = new HttpHost(proxyConfiguration.name, proxyConfiguration.port);
             //TODO: Support proxy authentication
             //TODO: Consider no_proxy hosts
 
-            client = new DefaultAPIClient(cloudURL, username, password, proxy, false);
+            client = new DefaultAPIClient(descriptor.endPointURL, descriptor.username, descriptor.password, proxy, false);
         } else {
-            client = new DefaultAPIClient(cloudURL, username, password);
+            client = new DefaultAPIClient(descriptor.endPointURL, descriptor.username, descriptor.password);
         }
         return client;
     }
@@ -109,9 +101,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
     @Override
     @SuppressWarnings({"hiding", "unchecked"})
     public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
+        DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         TestdroidLogger logger = new TestdroidLogger(listener);
-        String cloudURL = applyMacro(build, listener, getCloudURL());
-        APIClient client = getAPIClient(logger, getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
+        APIClient client = getAPIClient(logger);
         APIUser user = null;
 
         //authorize
@@ -122,7 +114,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException(e);
         }
 
-        final String cloudHost = new URL(cloudURL).getHost();
+        final String host = new URL(descriptor.endPointURL).getHost();
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
         String buildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
 
@@ -182,11 +174,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
         try {
             adb = getProxy("adb", client, session);
             logger.info("ADB port: " + adb.getString("port"));
-            logger.info("ADB host: " + cloudHost);
+            logger.info("ADB host: " + host);
             logger.info("Android serial: " + adb.getString("serialId"));
             marionette = getProxy("marionette", client, session);
             logger.info("Marionette port: " + marionette.getString("port"));
-            logger.info("Marionette host: " + cloudHost);
+            logger.info("Marionette host: " + host);
         } catch (IOException ioe) {
             logger.info("Failed to fetch proxy entries " + ioe.getMessage());
             releaseDeviceSession(logger, client, session);
@@ -203,11 +195,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             public void buildEnvVars(Map<String, String> env) {
                 env.put("SESSION_ID", Long.toString(apiDeviceSession.getId()));
                 env.put("ADB_PORT", adbJSONObject.getString("port"));
-                env.put("ADB_HOST", cloudHost);
+                env.put("ADB_HOST", host);
                 env.put("DEVICE_DATA", DEVICE_DATA_JSON_FILENAME);
                 env.put("ANDROID_SERIAL", adbJSONObject.getString("serialId"));
                 env.put("MARIONETTE_PORT", marionetteJSONObject.getString("port"));
-                env.put("MARIONETTE_HOST", cloudHost);
+                env.put("MARIONETTE_HOST", host);
             }
 
             @Override
@@ -224,7 +216,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     releaseDeviceSession(logger, getApiClient(), getApiDeviceSession());
                 } catch (IOException e) {
                     //Recreate API client as tokens(auth or/and refresh tokens might be expired
-                    final APIClient client = getAPIClient(logger, getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
+                    final APIClient client = getAPIClient(logger);
 
                     releaseDeviceSession(logger, client, getApiDeviceSession());
 
@@ -524,18 +516,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
         return memTotal != null ? memTotal : "0";
     }
 
-    public String getCloudURL() {
-        return cloudURL;
-    }
-
-    public String getUsername() {
-        return username;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
     public ArrayList<DeviceFilter> getDeviceFilters() {
         return deviceFilters;
     }
@@ -574,6 +554,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         private static final long serialVersionUID = 1L;
 
+        String endPointURL;
+        String username;
+        String password;
+
         public DescriptorImpl() {
             super(DeviceSessionWrapper.class);
             load();
@@ -587,6 +571,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
         @Override
         public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
             req.bindParameters(this);
+            this.endPointURL = json.getString("endPointURL");
+            this.username = json.getString("username");
+            this.password = json.getString("password");
             save();
             return true;
         }
@@ -594,6 +581,18 @@ public class DeviceSessionWrapper extends BuildWrapper {
         @Override
         public boolean isApplicable(AbstractProject<?, ?> item) {
             return true;
+        }
+
+        public String getEndPointURL() {
+            return endPointURL;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public String getPassword() {
+            return password;
         }
 
         public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {
