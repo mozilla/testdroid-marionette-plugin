@@ -33,13 +33,13 @@
                       name="deviceFilters"
                       add="${%Add filter}">
             <table width="100%">
+                <f:entry title="${%Group}"
+                         field="group">
+                    <f:textbox value="${deviceFilter.group}" />
+                </f:entry>
                 <f:entry title="${%Label}"
                          field="label">
                     <f:textbox value="${deviceFilter.label}" />
-                </f:entry>
-                <f:entry title="${%Value}"
-                         field="value">
-                    <f:textbox value="${deviceFilter.value}" />
                 </f:entry>
                 <f:entry>
                     <div align="right">

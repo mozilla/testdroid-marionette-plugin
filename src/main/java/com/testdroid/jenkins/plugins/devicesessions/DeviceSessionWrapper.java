@@ -462,24 +462,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
         List<Long> labelIds = new ArrayList<Long>();
 
         for(DeviceFilter f:filters) {
-            LOGGER.log(Level.INFO, String.format("Looking for label %s: %s", f.label, f.value));
+            LOGGER.log(Level.INFO, String.format("Looking for label %s: %s", f.group, f.label));
 
             //get label group
             APIListResource<APILabelGroup> labelGroupsResource = client
-                    .getLabelGroups(new APIQueryBuilder().search(f.label));
+                    .getLabelGroups(new APIQueryBuilder().search(f.group));
             APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
             if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
-                LOGGER.log(Level.WARNING, "Unable to find label group: " + f.label);
+                LOGGER.log(Level.WARNING, "Unable to find label group: " + f.group);
                 return null;
             }
             APILabelGroup labelGroup = labelGroupsList.get(0);
 
             //get label
             APIListResource<APIDeviceProperty> devicePropertiesResource = labelGroup
-                    .getDevicePropertiesResource(new APIQueryBuilder().search(f.value));
+                    .getDevicePropertiesResource(new APIQueryBuilder().search(f.label));
             APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
             if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
-                LOGGER.log(Level.WARNING, "Unable to find label: " + f.value);
+                LOGGER.log(Level.WARNING, "Unable to find label: " + f.label);
                 return null;
             }
 
@@ -495,7 +495,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
             devices = client.getDevices(new APIDeviceQueryBuilder()
                     .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s) with label(s)", devices.getTotal()));
+            LOGGER.log(Level.INFO, String.format("Found %s device(s)", devices.getTotal()));
         }
         //get the first online device with specific label
         //if lockedDeviceAllowed is true then return any locked device if unlocked can't be found
