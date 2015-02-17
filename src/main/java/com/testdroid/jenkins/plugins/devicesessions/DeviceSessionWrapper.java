@@ -72,20 +72,17 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private String username;
     //testdroid password
     private String password;
-    //name or device model id
-    private String deviceName;
     //device filters
     private ArrayList<DeviceFilter> deviceFilters = new ArrayList<DeviceFilter>();
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
-    public DeviceSessionWrapper(String cloudURL, String username, String password, String deviceName, String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters) {
+    public DeviceSessionWrapper(String cloudURL, String username, String password, String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters) {
         this.cloudURL = cloudURL;
         this.username = username;
         this.password = password;
         this.buildURL = buildURL;
         this.memTotal = memTotal;
-        this.deviceName = deviceName;
         this.deviceFilters = deviceFilters;
     }
 
@@ -136,7 +133,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException(e);
         }
 
-        listener.getLogger().println("Requesting session for device with name: " + device.getDisplayName());
+        listener.getLogger().println("Requesting session for device " + device.getId());
 
         Map<String, String> deviceSessionsParams = new HashMap<String, String>();
         deviceSessionsParams.put("deviceModelId", device.getId().toString());
@@ -176,15 +173,21 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException("Device session is null");
         }
 
+        listener.getLogger().println(String.format("Started session %d on device %d", session.getId(), device.getId()));
+        LOGGER.log(Level.INFO, String.format("Started session %d on device %d", session.getId(), device.getId()));
+
         writeDeviceDataJSON(build, launcher, listener, client, device, DEVICE_DATA_JSON_FILENAME);
 
         JSONObject adb;
         JSONObject marionette;
         try {
-            listener.getLogger().println("Device session started on device model ID: " + device.getId());
-            LOGGER.log(Level.INFO, "Device session started on device model ID: " + device.getId());
             adb = getProxy("adb", client, session);
+            listener.getLogger().println("ADB port: " + adb.getString("port"));
+            listener.getLogger().println("ADB host: " + cloudHost);
+            listener.getLogger().println("Android serial: " + adb.getString("serialId"));
             marionette = getProxy("marionette", client, session);
+            listener.getLogger().println("Marionette port: " + marionette.getString("port"));
+            listener.getLogger().println("Marionette host: " + cloudHost);
         } catch (IOException ioe) {
             listener.getLogger().println("Failed to fetch proxy entries " + ioe.getMessage());
             releaseDeviceSession(listener, client, session);
@@ -194,13 +197,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
             releaseDeviceSession(listener, client, session);
             throw ie;
         }
-
-        listener.getLogger().println("Started device session with ID: " + session.getId());
-        listener.getLogger().println("ADB port: " + adb.getString("port"));
-        listener.getLogger().println("ADB host: " + cloudHost);
-        listener.getLogger().println("Android serial: " + adb.getString("serialId"));
-        listener.getLogger().println("Marionette port: " + marionette.getString("port"));
-        listener.getLogger().println("Marionette host: " + cloudHost);
 
         return new TestdroidSessionEnvironment(client, session, adb, marionette) {
 
@@ -507,7 +503,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         for (APIDevice d : devices.getEntity().getData()) {
 
             if(d.isOnline() && !d.isLocked()) {
-                LOGGER.log(Level.INFO, String.format("Found device: %s with ID: %d ", d.getDisplayName(), d.getId()));
+                LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
                 return d;
             } else if(d.isOnline() && d.isLocked()) {
                 lockedDevice = d;
@@ -518,10 +514,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
         LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
         return null;
-    }
-
-    public String getDeviceName() {
-        return deviceName;
     }
 
     public String getBuildURL() {
@@ -613,14 +605,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return FormValidation.ok();
             } catch (Exception e) {
                 return FormValidation.warning("Unable to validate URL. " + e.getMessage());
-            }
-        }
-
-        public FormValidation doCheckDeviceName(@QueryParameter String value) throws IOException, ServletException {
-            if (value == null || value.trim().isEmpty()) {
-                return FormValidation.error("Device name is mandatory");
-            } else {
-                return FormValidation.ok();
             }
         }
 
