@@ -219,9 +219,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 } catch (IOException e) {
                     //Recreate API client as tokens(auth or/and refresh tokens might be expired
                     final APIClient client = getAPIClient(logger);
-
                     releaseDeviceSession(logger, client, getApiDeviceSession());
-
                 }
                 return true;
             }
@@ -356,7 +354,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         try {
             apiClient.post(String.format("/me/device-sessions/%d/release", apiDeviceSession.getId()), null, null);
         } catch (APIException e) {
-            logger.info("Failed to release device session " + e.getMessage());
+            logger.error("Failed to release device session " + e.getMessage());
             throw new IOException(e);
         }
     }
