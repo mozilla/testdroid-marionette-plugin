@@ -89,7 +89,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         this.deviceFilters = deviceFilters;
     }
 
-    private APIClient getAPIClient(String cloudURL, String username, String password, ProxyConfiguration proxyConfiguration) {
+    private APIClient getAPIClient(BuildListener listener, String cloudURL, String username, String password, ProxyConfiguration proxyConfiguration) {
+        listener.getLogger().println("Connecting to " + getCloudURL() + " as " + getUsername() + (proxyConfiguration != null ? " using proxy " + proxyConfiguration.toString():""));
         APIClient client = null;
         if (proxyConfiguration != null) {
             HttpHost proxy = new HttpHost(proxyConfiguration.name, proxyConfiguration.port);
@@ -111,15 +112,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
     @Override
     @SuppressWarnings({"hiding", "unchecked"})
     public Environment setUp(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException {
-
         String cloudURL = applyMacro(build, listener, getCloudURL());
-
-
-        ProxyConfiguration p = Jenkins.getInstance().proxy;
-        listener.getLogger().println("Connecting to " + getCloudURL() + " as " + getUsername() + (p != null ? " using proxy " + p.toString():""));
-
-        APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), p);
-
+        APIClient client = getAPIClient(listener, getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
         APIUser user = null;
 
         //authorize
@@ -165,13 +159,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
             if(session == null) {
                 listener.getLogger().println("Device was not available");
                 try {
-                    ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
+                    ArrayList<DeviceFilter> filters = new ArrayList<DeviceFilter>();
                     if(getDeviceFilters() != null ) {
-                        searchFilters = (ArrayList<DeviceFilter>) getDeviceFilters().clone();
+                        filters = (ArrayList<DeviceFilter>) getDeviceFilters().clone();
                     }
-                    runProject(listener, client, searchFilters, finalBuildURL, getMemTotal());
+                    flashDevice(listener, client, filters, finalBuildURL, getMemTotal());
                 } catch (APIException e) {
-                    listener.getLogger().println("Failed to run project" + e.getMessage());
+                    listener.getLogger().println("Failed to flash device" + e.getMessage());
                     throw new IOException(e);
                 }
             }
@@ -234,7 +228,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     releaseDeviceSession(listener, getApiClient(), getApiDeviceSession());
                 } catch (IOException e) {
                     //Recreate API client as tokens(auth or/and refresh tokens might be expired
-                    final APIClient client = getAPIClient(getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
+                    final APIClient client = getAPIClient(listener, getCloudURL(),getUsername(), getPassword(), Jenkins.getInstance().proxy);
 
                     releaseDeviceSession(listener, client, getApiDeviceSession());
 
@@ -349,11 +343,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
         int maxRetries = FLASH_RETRIES;
 
         ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
-        ArrayList<DeviceFilter> runProjectDeviceFilters = new ArrayList<DeviceFilter>();
+        ArrayList<DeviceFilter> flashFilters = new ArrayList<DeviceFilter>();
 
         if(filters != null ) {
             searchFilters = (ArrayList<DeviceFilter>) filters.clone();
-            runProjectDeviceFilters = (ArrayList<DeviceFilter>) filters.clone();
+            flashFilters = (ArrayList<DeviceFilter>) filters.clone();
         }
         //look for device having "Build Identifier" label with value {buildIdentifier}
         searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
@@ -363,7 +357,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 throw new IOException("Device flashing failed");
             }
             //if not matching device is not found run flash project
-            runProject(listener, client, runProjectDeviceFilters, buildURL, memTotal);
+            flashDevice(listener, client, flashFilters, buildURL, memTotal);
         }
         return device;
     }
@@ -401,7 +395,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean runProject(BuildListener listener, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+    public boolean flashDevice(BuildListener listener, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
         String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
         listener.getLogger().println("Flashing device with " + buildURL + memoryThrottled);
 
@@ -496,6 +490,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             APIDeviceProperty deviceProperty = devicePropertiesList.get(0);
             labelIds.add(deviceProperty.getId());
         }
+
         APIListResource<APIDevice> devices = null;
         if(labelIds.size() == 0) {
             devices = client.getDevices();
