@@ -78,14 +78,16 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private APIClient getAPIClient(TestdroidLogger logger) {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
+        HttpHost proxy = null;
         ProxyConfiguration proxyConfiguration = Jenkins.getInstance().proxy;
-        logger.info("Connecting to " + descriptor.endPointURL + " as " + descriptor.username + (proxyConfiguration != null ? " using proxy " + proxyConfiguration.toString() : ""));
-        APIClient client = null;
         if (proxyConfiguration != null) {
-            HttpHost proxy = new HttpHost(proxyConfiguration.name, proxyConfiguration.port);
+            proxy = new HttpHost(proxyConfiguration.name, proxyConfiguration.port);
+        }
+        logger.info("Connecting to " + descriptor.endPointURL + " as " + descriptor.username + (proxy != null ? " using proxy " + proxy.toString() : ""));
+        APIClient client = null;
+        if (proxy != null) {
             //TODO: Support proxy authentication
             //TODO: Consider no_proxy hosts
-
             client = new DefaultAPIClient(descriptor.endPointURL, descriptor.username, descriptor.password, proxy, false);
         } else {
             client = new DefaultAPIClient(descriptor.endPointURL, descriptor.username, descriptor.password);
