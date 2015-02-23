@@ -479,20 +479,28 @@ public class DeviceSessionWrapper extends BuildWrapper {
             labelIds.add(deviceProperty.getId());
         }
 
-        APIListResource<APIDevice> devices = null;
+        APIListResource<APIDevice> deviceListResource = null;
         if(labelIds.size() == 0) {
-            devices = client.getDevices();
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", devices.getTotal()));
+            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0));
+            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         } else {
             LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
-            devices = client.getDevices(new APIDeviceQueryBuilder()
+            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0)
                     .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", devices.getTotal()));
+            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         }
+        if(deviceListResource == null || deviceListResource.getTotal() == 0) {
+            return null;
+        }
+        List<APIDevice> devices = deviceListResource.getEntity().getData();
+        //shuffle list of of devices to avoid picking up the same device always
+        Collections.shuffle(devices);
+
         //get the first online device with specific label
         //if lockedDeviceAllowed is true then return any locked device if unlocked can't be found
         APIDevice lockedDevice = null;
-        for (APIDevice d : devices.getEntity().getData()) {
+
+        for (APIDevice d : devices) {
 
             if(d.isOnline() && !d.isLocked()) {
                 LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
