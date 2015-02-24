@@ -57,6 +57,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private final static int WAIT_FOR_PROXY_TIMEOUT = 5*60*1000;  //5mins
 
+    //Wait until device instance has been dedicated for device session
+    private final static int WAIT_FOR_DEVICE_SESSION = 1*60*1000;  //1min
+
     private final static int POLL_INTERVAL = 10*1000;
 
     private final static String DEVICE_DATA_JSON_FILENAME = "device.json";
@@ -120,20 +123,23 @@ public class DeviceSessionWrapper extends BuildWrapper {
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
         String buildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
 
-        APIDevice device = null;
-        try {
-            device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, getMemTotal());
-        } catch (APIException e) {
-            logger.error("Failed to retrieve device by build id " + e.getMessage());
-            throw new IOException(e);
-        }
+        APIDevice device;
 
-        Map<String, String> deviceSessionsParams = new HashMap<String, String>();
-        deviceSessionsParams.put("deviceModelId", device.getId().toString());
         APIDeviceSession session = null;
 
         int retries = FLASH_RETRIES;
         do {
+
+            try {
+                device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, getMemTotal());
+            } catch (APIException e) {
+                logger.error("Failed to retrieve device by build id " + e.getMessage());
+                throw new IOException(e);
+            }
+
+            Map<String, String> deviceSessionsParams = new HashMap<String, String>();
+            deviceSessionsParams.put("deviceModelId", device.getId().toString());
+
             //in this phase we have found device with specific label, however it might not be available anymore
             //1) request device session
             try {
@@ -145,20 +151,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     throw new IOException(e);
                 }
             }
-            //If session can't be created, run flash project again
-            if(session == null) {
-                logger.info("Device was not available");
-                try {
-                    ArrayList<DeviceFilter> filters = new ArrayList<DeviceFilter>();
-                    if(getDeviceFilters() != null ) {
-                        filters = (ArrayList<DeviceFilter>) getDeviceFilters().clone();
-                    }
-                    flashDevice(logger, client, filters, finalBuildURL, getMemTotal());
-                } catch (APIException e) {
-                    logger.error("Failed to flash device" + e.getMessage());
-                    throw new IOException(e);
-                }
+
+            if(session != null && !waitUntilDeviceSessionIsRunning(session, WAIT_FOR_DEVICE_SESSION) ) {
+                logger.info("Timeout when waiting for device session "+session.getId());
+                releaseDeviceSession(logger, client, session);
+                session = null;
+
             }
+
         } while (session == null && retries-- > 0);
 
         if(session == null) {
@@ -224,6 +224,34 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return true;
             }
         };
+    }
+
+    /**
+     * Wait until DeviceSession state is "running" or timeout occurs.
+     * @param apiDeviceSession
+     * @param timeout
+     * @return true if device session is running
+     * @throws InterruptedException
+     * @throws IOException
+     */
+    private boolean waitUntilDeviceSessionIsRunning(APIDeviceSession apiDeviceSession, int timeout) throws InterruptedException, IOException {
+
+        long waitUntil = System.currentTimeMillis() + timeout;
+        while (apiDeviceSession.getState().equals(APIDeviceSession.State.WAITING) &&
+                waitUntil > System.currentTimeMillis()) {
+            Thread.sleep(5000);
+            try {
+                apiDeviceSession.refresh();
+            } catch (APIException e) {
+                //ignore
+            }
+        }
+
+        if (apiDeviceSession.getState().equals(APIDeviceSession.State.RUNNING)) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -424,17 +452,17 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //start test run
         client.post(String.format("/runs/%s/start", testRun.getId()), usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
-        long waitUntil = Calendar.getInstance().getTimeInMillis() + FLASH_TIMEOUT;
+        long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
 
             try {
 
                 Thread.sleep(10000);
 
-                if (waitUntil < Calendar.getInstance().getTimeInMillis()) {
+                if (waitUntil <  System.currentTimeMillis()) {
                     //abort run if it's still in WAITING state
                     testRun.refresh();
-                    if(!testRun.getState().equals(APITestRun.State.WAITING)) {
+                    if(testRun.getState().equals(APITestRun.State.WAITING)) {
                         testRun.abort();
                     }
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
@@ -501,7 +529,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIDevice lockedDevice = null;
 
         for (APIDevice d : devices) {
-
             if(d.isOnline() && !d.isLocked()) {
                 LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
                 return d;
