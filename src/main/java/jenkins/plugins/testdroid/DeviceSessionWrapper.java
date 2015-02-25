@@ -284,7 +284,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
             JSONObject jsonObject = new JSONObject();
             for (APIDeviceProperty property : deviceProperties.getData()) {
-                String groupName = property.getPropertyGroupName();
+                String groupName = property.getPropertyGroupName().toLowerCase().replace(" ", "_");
                 String labelName = property.getDisplayName();
                 if (jsonObject.containsKey(groupName)) {
                     JSONArray labels = new JSONArray();
