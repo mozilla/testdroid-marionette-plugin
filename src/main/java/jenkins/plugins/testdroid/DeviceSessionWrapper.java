@@ -502,8 +502,19 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 LOGGER.log(Level.WARNING, "Unable to find label: " + f.label);
                 return null;
             }
-
-            APIDeviceProperty deviceProperty = devicePropertiesList.get(0);
+            int index = 0;
+            //search for exact match
+            for(APIDeviceProperty deviceProperty : devicePropertiesList.getData()) {
+                if(f.label.equals(deviceProperty.getDisplayName())) {
+                    break;
+                }
+                index++;
+            }
+            if(devicePropertiesList.getData().size() <= index) {
+                LOGGER.log(Level.WARNING, "Unable to find label: " + f.label);
+                return null;
+            }
+            APIDeviceProperty deviceProperty = devicePropertiesList.get(index);
             labelIds.add(deviceProperty.getId());
         }
 
