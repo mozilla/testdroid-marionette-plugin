@@ -124,6 +124,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
         String finalMemTotal = applyMacro(build, listener, getMemTotal());
 
+        ArrayList<DeviceFilter> finalDeviceFilters = new ArrayList<DeviceFilter>();
+        for(DeviceFilter f:getDeviceFilters()) {
+            String finalGroup = applyMacro(build, listener, f.group);
+            String finalLabel = applyMacro(build, listener, f.label);
+            finalDeviceFilters.add(new DeviceFilter(finalGroup, finalLabel));
+        }
+
         String buildIdentifier = String.format("%s_%s", finalMemTotal, finalBuildURL);
 
         APIDevice device;
@@ -134,7 +141,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         do {
 
             try {
-                device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, finalMemTotal);
+                device = getDevice(logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal);
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
@@ -451,7 +458,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         //start flash
         String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
-        logger.info(String.format("Flashing device with %s%s", buildURL,  memoryThrottled));
+        logger.info(String.format("Flashing device with %s%s", buildURL, memoryThrottled));
         client.post(String.format("/runs/%s/start", testRun.getId()), usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
         long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
@@ -490,6 +497,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getLabelGroups(new APIQueryBuilder().search(f.group));
             APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
             if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
+                logger.error(String.format("Label group '%s' not found", f.group));
                 LOGGER.log(Level.WARNING, "Unable to find label group: " + f.group);
                 return null;
             }
@@ -500,6 +508,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getDevicePropertiesResource(new APIQueryBuilder().search(f.label));
             APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
             if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
+                logger.error(String.format("Label '%s' not found", f.label));
                 LOGGER.log(Level.WARNING, "Unable to find label: " + f.label);
                 return null;
             }
