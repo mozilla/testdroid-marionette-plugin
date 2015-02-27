@@ -120,8 +120,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
 
         final String host = new URL(descriptor.endPointURL).getHost();
+
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
-        String buildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
+        String finalMemTotal = applyMacro(build, listener, getMemTotal());
+
+        String buildIdentifier = String.format("%s_%s", finalMemTotal, finalBuildURL);
 
         APIDevice device;
 
@@ -131,7 +134,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         do {
 
             try {
-                device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, getMemTotal());
+                device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, finalMemTotal);
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
@@ -666,6 +669,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
 
         public FormValidation doCheckMemTotal(@QueryParameter String value) throws IOException, ServletException {
+            if (value.contains("$")) {
+                // Unable to expand environment variables during validation
+                return FormValidation.ok();
+            }
             try {
                 Integer memTotal = Integer.parseInt(value);
                 if (memTotal >= 0) {

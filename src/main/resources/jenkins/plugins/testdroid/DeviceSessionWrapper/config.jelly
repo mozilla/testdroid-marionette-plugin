@@ -7,9 +7,9 @@
     </f:entry>
     <f:entry title="${%Throttle memory}"
              field="memTotal">
-        <f:number default="0"
-                  name="memTotal"
-                  value="${instance.memTotal}" />
+        <f:textbox default="0"
+                   name="memTotal"
+                   value="${instance.memTotal}" />
     </f:entry>
     <f:entry title="${%Device filters}">
         <f:repeatable var="deviceFilter"
