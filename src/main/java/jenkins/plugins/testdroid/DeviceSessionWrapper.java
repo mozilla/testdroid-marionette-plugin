@@ -647,12 +647,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
         public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {
             if (value == null || value.trim().isEmpty()) {
                 return FormValidation.error("Build URL is mandatory");
+            } else if (value.contains("$")) {
+                // Unable to expand environment variables during validation
+                return FormValidation.ok();
             }
             try {
                 new URI(value);
                 return FormValidation.ok();
             } catch (Exception e) {
-                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+                return FormValidation.error("Build URL must be a valid URI. " + e.getMessage());
             }
         }
 
@@ -664,7 +667,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 new URI(value);
                 return FormValidation.ok();
             } catch (Exception e) {
-                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+                return FormValidation.error("End Point URL must be a valid URI. " + e.getMessage());
             }
         }
 
