@@ -169,7 +169,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException("Device session is null");
         }
 
-        logger.info(String.format("Started session %d on device %d", session.getId(), device.getId()));
+        logger.info(String.format("Started session %d", session.getId()));
         LOGGER.log(Level.INFO, String.format("Started session %d on device %d", session.getId(), device.getId()));
 
         writeDeviceDataJSON(build, launcher, listener, client, device, DEVICE_DATA_JSON_FILENAME);
@@ -370,7 +370,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
         //look for device having "Build Identifier" label with value {buildIdentifier}
         searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
-        while( (device = searchDevice(client, searchFilters, false)) == null) {
+        while( (device = searchDevice(logger, client, searchFilters, false)) == null) {
             if(maxRetries-- < 0) {
                 logger.info(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
@@ -415,9 +415,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @return
      */
     public boolean flashDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
-        String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
-        logger.info("Flashing device with " + buildURL + memoryThrottled);
-
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -443,7 +440,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         config.createParameter(BUILD_URL_PARAM, buildURL);
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
 
-        APIDevice device = searchDevice(client, filters, true);
+        APIDevice device = searchDevice(logger, client, filters, true);
 
         if(device == null) {
             throw new IOException("Unable find device!");
@@ -452,22 +449,22 @@ public class DeviceSessionWrapper extends BuildWrapper {
         Map<String,String> usedDevicesId = new HashMap<String, String>();
         usedDevicesId.put("usedDeviceIds[]",device.getId().toString());
 
-        //start test run
+        //start flash
+        String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
+        logger.info(String.format("Flashing device with %s%s", buildURL,  memoryThrottled));
         client.post(String.format("/runs/%s/start", testRun.getId()), usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
         long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
-
             try {
-
                 Thread.sleep(10000);
-
                 if (waitUntil <  System.currentTimeMillis()) {
                     //abort run if it's still in WAITING state
                     testRun.refresh();
                     if(testRun.getState().equals(APITestRun.State.WAITING)) {
                         testRun.abort();
                     }
+                    logger.error(String.format("Flashing device timed out after %d seconds", FLASH_TIMEOUT / 1000));
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
                     return false;
                 }
@@ -475,16 +472,17 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (InterruptedException ie) {
                 testRun.abort();
                 throw ie;
-
             }
         }
         return true;
     }
 
-    public APIDevice searchDevice(APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
+    public APIDevice searchDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
+        logger.info("Searching for devices...");
         List<Long> labelIds = new ArrayList<Long>();
 
         for(DeviceFilter f:filters) {
+            logger.info(String.format("[%s: %s]", f.group, f.label));
             LOGGER.log(Level.INFO, String.format("Looking for label %s: %s", f.group, f.label));
 
             //get label group
@@ -524,13 +522,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIListResource<APIDevice> deviceListResource = null;
         if(labelIds.size() == 0) {
             deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         } else {
             LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
             deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0)
                     .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         }
+        Integer totalDevices = deviceListResource.getTotal();
+        logger.info(String.format("Found %s device%s", totalDevices, totalDevices.equals(1) ? "" : "s"));
         if(deviceListResource == null || deviceListResource.getTotal() == 0) {
             return null;
         }
@@ -544,6 +542,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         for (APIDevice d : devices) {
             if(d.isOnline() && !d.isLocked()) {
+                logger.info(String.format("Selected device %s", d.getId()));
                 LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
                 return d;
             } else if(d.isOnline() && d.isLocked()) {
@@ -551,8 +550,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
         }
         if(lockedDeviceAllowed) {
+            logger.info(String.format("Selected (locked) device %s", lockedDevice.getId()));
             return lockedDevice;
         }
+        logger.info("No available devices were found");
         LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
         return null;
     }
