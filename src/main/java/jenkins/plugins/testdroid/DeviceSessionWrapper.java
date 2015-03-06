@@ -457,7 +457,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
             try {
 
-                Thread.sleep(10000);
+                Thread.sleep(POLL_INTERVAL);
 
                 if (waitUntil <  System.currentTimeMillis()) {
                     //abort run if it's still in WAITING state
