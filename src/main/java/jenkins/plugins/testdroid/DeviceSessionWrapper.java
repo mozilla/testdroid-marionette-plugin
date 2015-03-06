@@ -141,7 +141,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         do {
 
             try {
-                device = getDevice(logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal);
+                device = getDevice(build, launcher, logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal);
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
@@ -354,17 +354,19 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Search device by label from "Build Version" label group. If device is not available flash device with specific
      * build seach device again.
 
-     * @param logger
+     *
+     * @param build
+     * @param launcher
+     *@param logger
      * @param client
      * @param filters
      * @param buildIdentifier
      * @param buildURL
-     * @param memTotal
-     * @throws APIException
+     * @param memTotal       @throws APIException
      * @throws IOException
      * @throws InterruptedException
      */
-    private APIDevice getDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+    private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
         APIDevice device;
         int maxRetries = FLASH_RETRIES;
 
@@ -383,7 +385,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 throw new IOException("Device flashing failed");
             }
             //if not matching device is not found run flash project
-            flashDevice(logger, client, flashFilters, buildURL, memTotal);
+            flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal);
         }
         return device;
     }
@@ -421,7 +423,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean flashDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+    public boolean flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -464,7 +466,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
         long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
             try {
-
                 Thread.sleep(POLL_INTERVAL);
 
                 if (waitUntil <  System.currentTimeMillis()) {
@@ -481,6 +482,22 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (InterruptedException ie) {
                 testRun.abort();
                 throw ie;
+            }
+        }
+        //Check the device runs of the test run. If device run failed download logs.
+        APIListResource<APIDeviceRun> deviceRunAPIListResource = testRun.getDeviceRunsResource();
+        APIList<APIDeviceRun> deviceRunList = deviceRunAPIListResource.getEntity();
+        if(deviceRunList == null || deviceRunList.getTotal() <= 0) {
+            logger.error(String.format("Can't find device run from test run: %d", testRun.getId()));
+            return false;
+        }
+
+        for(APIDeviceRun deviceRun : deviceRunList.getData()) {
+            if(deviceRun.getRunStatus().equals(APIDeviceRun.RunStatus.FAILED)) {
+                URI workspaceURI = build.getWorkspace().toURI();
+                FilePath destFile = new FilePath(launcher.getChannel(), String.format("%s/failure_%d.log",workspaceURI.getPath(), deviceRun.getId()));
+                destFile.copyFrom(client.get(String.format("/device-runs/%d/cluster-logs", deviceRun.getId())));
+                return false;
             }
         }
         return true;
@@ -532,10 +549,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         APIListResource<APIDevice> deviceListResource = null;
         if(labelIds.size() == 0) {
-            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0));
+            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(1000));
         } else {
             LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
-            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0)
+            deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(1000)
                     .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
         }
         Integer totalDevices = deviceListResource.getTotal();
@@ -578,7 +595,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
     }
 
     public ArrayList<DeviceFilter> getDeviceFilters() {
-        return deviceFilters;
+        return deviceFilters != null ? deviceFilters : new ArrayList<DeviceFilter>();
     }
 
     private JSONObject getProxy(String type, APIClient client, APIDeviceSession session) throws IOException, InterruptedException {
