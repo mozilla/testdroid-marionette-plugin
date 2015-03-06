@@ -120,8 +120,18 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
 
         final String host = new URL(descriptor.endPointURL).getHost();
+
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
-        String buildIdentifier = String.format("%s_%s", getMemTotal(), finalBuildURL);
+        String finalMemTotal = applyMacro(build, listener, getMemTotal());
+
+        ArrayList<DeviceFilter> finalDeviceFilters = new ArrayList<DeviceFilter>();
+        for(DeviceFilter f:getDeviceFilters()) {
+            String finalGroup = applyMacro(build, listener, f.group);
+            String finalLabel = applyMacro(build, listener, f.label);
+            finalDeviceFilters.add(new DeviceFilter(finalGroup, finalLabel));
+        }
+
+        String buildIdentifier = String.format("%s_%s", finalMemTotal, finalBuildURL);
 
         APIDevice device;
 
@@ -131,7 +141,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         do {
 
             try {
-                device = getDevice(logger, client, getDeviceFilters(), buildIdentifier, finalBuildURL, getMemTotal());
+                device = getDevice(logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal);
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
@@ -166,7 +176,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             throw new IOException("Device session is null");
         }
 
-        logger.info(String.format("Started session %d on device %d", session.getId(), device.getId()));
+        logger.info(String.format("Started session %d", session.getId()));
         LOGGER.log(Level.INFO, String.format("Started session %d on device %d", session.getId(), device.getId()));
 
         writeDeviceDataJSON(build, launcher, listener, client, device, DEVICE_DATA_JSON_FILENAME);
@@ -284,7 +294,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
             JSONObject jsonObject = new JSONObject();
             for (APIDeviceProperty property : deviceProperties.getData()) {
-                String groupName = property.getPropertyGroupName();
+                String groupName = property.getPropertyGroupName().toLowerCase().replace(" ", "_");
                 String labelName = property.getDisplayName();
                 if (jsonObject.containsKey(groupName)) {
                     JSONArray labels = new JSONArray();
@@ -367,7 +377,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         }
         //look for device having "Build Identifier" label with value {buildIdentifier}
         searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
-        while( (device = searchDevice(client, searchFilters, false)) == null) {
+        while( (device = searchDevice(logger, client, searchFilters, false)) == null) {
             if(maxRetries-- < 0) {
                 logger.info(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
                 throw new IOException("Device flashing failed");
@@ -412,9 +422,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @return
      */
     public boolean flashDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
-        String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
-        logger.info("Flashing device with " + buildURL + memoryThrottled);
-
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -440,7 +447,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         config.createParameter(BUILD_URL_PARAM, buildURL);
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
 
-        APIDevice device = searchDevice(client, filters, true);
+        APIDevice device = searchDevice(logger, client, filters, true);
 
         if(device == null) {
             throw new IOException("Unable find device!");
@@ -449,12 +456,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
         Map<String,String> usedDevicesId = new HashMap<String, String>();
         usedDevicesId.put("usedDeviceIds[]",device.getId().toString());
 
-        //start test run
+        //start flash
+        String memoryThrottled = Integer.parseInt(memTotal) > 0 ? " and memory throttled at " + memTotal + "MB" : "";
+        logger.info(String.format("Flashing device with %s%s", buildURL, memoryThrottled));
         client.post(String.format("/runs/%s/start", testRun.getId()), usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
         long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
-
             try {
 
                 Thread.sleep(POLL_INTERVAL);
@@ -465,6 +473,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     if(testRun.getState().equals(APITestRun.State.WAITING)) {
                         testRun.abort();
                     }
+                    logger.error(String.format("Flashing device timed out after %d seconds", FLASH_TIMEOUT / 1000));
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
                     return false;
                 }
@@ -472,16 +481,17 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (InterruptedException ie) {
                 testRun.abort();
                 throw ie;
-
             }
         }
         return true;
     }
 
-    public APIDevice searchDevice(APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
+    public APIDevice searchDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
+        logger.info("Searching for devices...");
         List<Long> labelIds = new ArrayList<Long>();
 
         for(DeviceFilter f:filters) {
+            logger.info(String.format("[%s: %s]", f.group, f.label));
             LOGGER.log(Level.INFO, String.format("Looking for label %s: %s", f.group, f.label));
 
             //get label group
@@ -489,6 +499,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getLabelGroups(new APIQueryBuilder().search(f.group));
             APIList<APILabelGroup> labelGroupsList = labelGroupsResource.getEntity();
             if(labelGroupsList == null || labelGroupsList.getTotal() <= 0) {
+                logger.error(String.format("Label group '%s' not found", f.group));
                 LOGGER.log(Level.WARNING, "Unable to find label group: " + f.group);
                 return null;
             }
@@ -499,6 +510,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     .getDevicePropertiesResource(new APIQueryBuilder().search(f.label));
             APIList<APIDeviceProperty> devicePropertiesList = devicePropertiesResource.getEntity();
             if(devicePropertiesList == null || devicePropertiesList.getTotal() <= 0) {
+                logger.error(String.format("Label '%s' not found", f.label));
                 LOGGER.log(Level.WARNING, "Unable to find label: " + f.label);
                 return null;
             }
@@ -521,13 +533,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIListResource<APIDevice> deviceListResource = null;
         if(labelIds.size() == 0) {
             deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         } else {
             LOGGER.log(Level.INFO, String.format("Looking for devices with labels: %s", labelIds.toString()));
             deviceListResource = client.getDevices(new APIDeviceQueryBuilder().limit(0)
                     .filterWithLabelIds(labelIds.toArray(new Long[labelIds.size()])));
-            LOGGER.log(Level.INFO, String.format("Found %s device(s)", deviceListResource.getTotal()));
         }
+        Integer totalDevices = deviceListResource.getTotal();
+        logger.info(String.format("Found %s device%s", totalDevices, totalDevices.equals(1) ? "" : "s"));
         if(deviceListResource == null || deviceListResource.getTotal() == 0) {
             return null;
         }
@@ -541,6 +553,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         for (APIDevice d : devices) {
             if(d.isOnline() && !d.isLocked()) {
+                logger.info(String.format("Selected device %s", d.getId()));
                 LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
                 return d;
             } else if(d.isOnline() && d.isLocked()) {
@@ -548,8 +561,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
         }
         if(lockedDeviceAllowed) {
+            logger.info(String.format("Selected (locked) device %s", lockedDevice.getId()));
             return lockedDevice;
         }
+        logger.info("No available devices were found");
         LOGGER.log(Level.INFO, String.format("Unable to find any devices with label(s)"));
         return null;
     }
@@ -644,12 +659,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
         public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {
             if (value == null || value.trim().isEmpty()) {
                 return FormValidation.error("Build URL is mandatory");
+            } else if (value.contains("$")) {
+                // Unable to expand environment variables during validation
+                return FormValidation.ok();
             }
             try {
                 new URI(value);
                 return FormValidation.ok();
             } catch (Exception e) {
-                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+                return FormValidation.error("Build URL must be a valid URI. " + e.getMessage());
             }
         }
 
@@ -661,11 +679,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 new URI(value);
                 return FormValidation.ok();
             } catch (Exception e) {
-                return FormValidation.warning("Unable to validate URL. " + e.getMessage());
+                return FormValidation.error("End Point URL must be a valid URI. " + e.getMessage());
             }
         }
 
         public FormValidation doCheckMemTotal(@QueryParameter String value) throws IOException, ServletException {
+            if (value.contains("$")) {
+                // Unable to expand environment variables during validation
+                return FormValidation.ok();
+            }
             try {
                 Integer memTotal = Integer.parseInt(value);
                 if (memTotal >= 0) {
