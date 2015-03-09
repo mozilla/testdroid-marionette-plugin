@@ -507,6 +507,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return false;
             }
         }
+        //Sometimes we return from flashing before the device is available for use
+        //TODO Remove this hardcoded sleep once we fix the root cause
+        Thread.sleep(30000);
         return true;
     }
 
