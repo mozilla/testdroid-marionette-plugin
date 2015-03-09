@@ -580,15 +580,15 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         for (APIDevice d : devices) {
             if(d.isOnline() && !d.isLocked()) {
-                logger.info(String.format("Selected device %s", d.getId()));
-                LOGGER.log(Level.INFO, String.format("Found device %d", d.getId()));
+                logger.info(String.format("Selected device %s (%d)", d.getDisplayName(), d.getId()));
+                LOGGER.log(Level.INFO, String.format("Selected device %s (%d)", d.getDisplayName(), d.getId()));
                 return d;
             } else if(d.isOnline() && d.isLocked()) {
                 lockedDevice = d;
             }
         }
         if(lockedDeviceAllowed) {
-            logger.info(String.format("Selected (locked) device %s", lockedDevice.getId()));
+            logger.info(String.format("Selected (locked) device %s (%d)", lockedDevice.getDisplayName(), lockedDevice.getId()));
             return lockedDevice;
         }
         logger.info("No available devices were found");
