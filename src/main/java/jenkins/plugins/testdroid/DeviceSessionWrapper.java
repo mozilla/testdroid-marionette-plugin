@@ -38,14 +38,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private static final long serialVersionUID = 1L;
 
+    private final static String DEFAULT_FLASH_PROJECT_NAME = "flash-fxos";
     private final static int DEFAULT_FLASH_TIMEOUT = 10*60;  //10mins
     private final static int DEFAULT_FLASH_RETRIES = 5;
 
     //device label group which contains all the build version labels
     private final static String BUILD_IDENTIFIER_LABEL_GROUP = "Build Identifier";
-
-    //default flash project name in testdroid TODO: add it as parameter
-    private final static String FLASH_PROJECT_NAME = "flash-fxos";
 
     //parameter for location of build to flash TODO: add it as parameter
     private final static String BUILD_URL_PARAM = "FLAME_ZIP_URL";
@@ -68,13 +66,16 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private String memTotal;
     //device filters
     private ArrayList<DeviceFilter> deviceFilters = new ArrayList<DeviceFilter>();
+    //flash project name
+    private String flashProjectName;
 
     @DataBoundConstructor
     @SuppressWarnings("hiding")
-    public DeviceSessionWrapper(String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters) {
+    public DeviceSessionWrapper(String buildURL, String memTotal, ArrayList<DeviceFilter> deviceFilters, String flashProjectName) {
         this.buildURL = buildURL;
         this.memTotal = memTotal;
         this.deviceFilters = deviceFilters;
+        this.flashProjectName = flashProjectName;
     }
 
     private APIClient getAPIClient(TestdroidLogger logger) {
@@ -121,6 +122,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         String finalBuildURL = applyMacro(build, listener, getBuildURL());
         String finalMemTotal = applyMacro(build, listener, getMemTotal());
+        String finalFlashProjectName = applyMacro(build, listener, getFlashProjectName());
 
         ArrayList<DeviceFilter> finalDeviceFilters = new ArrayList<DeviceFilter>();
         for(DeviceFilter f:getDeviceFilters()) {
@@ -139,7 +141,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         do {
 
             try {
-                device = getDevice(build, launcher, logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal);
+                device = getDevice(build, launcher, logger, client, finalDeviceFilters, buildIdentifier, finalBuildURL, finalMemTotal, finalFlashProjectName);
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
@@ -365,7 +367,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @throws IOException
      * @throws InterruptedException
      */
-    private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+    private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIDevice device;
         int retries = descriptor.getFlashRetries();
@@ -385,7 +387,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 throw new IOException("Device flashing failed");
             }
             //if not matching device is not found run flash project
-            flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal);
+            flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
         }
         return device;
     }
@@ -423,13 +425,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+    public boolean flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIUser user = client.me();
-        APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
+        APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(flashProjectName));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
         if(projectList == null || projectList.getTotal() <= 0) {
-            LOGGER.log(Level.SEVERE, "Unable find project: " + FLASH_PROJECT_NAME);
+            logger.error(String.format("Unable find project %s", flashProjectName));
+            LOGGER.log(Level.SEVERE, String.format("Unable find project %s", flashProjectName));
             return false;
         }
         APIProject flashProject = projectList.get(0);
@@ -600,6 +603,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     public ArrayList<DeviceFilter> getDeviceFilters() {
         return deviceFilters != null ? deviceFilters : new ArrayList<DeviceFilter>();
+    }
+
+    public String getFlashProjectName() {
+        return flashProjectName != null ? flashProjectName : DEFAULT_FLASH_PROJECT_NAME;
     }
 
     private JSONObject getProxy(String type, APIClient client, APIDeviceSession session) throws IOException, InterruptedException {

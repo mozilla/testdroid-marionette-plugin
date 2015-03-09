@@ -32,6 +32,13 @@
                 </f:entry>
             </table>
         </f:repeatable>
+        <f:advanced>
+            <f:entry title="${%Flash project}"
+                     field="flashProjectName">
+                <f:textbox name="flashProjectName"
+                           value="${instance.flashProjectName}" />
+            </f:entry>
+        </f:advanced>
     </f:entry>
 
 </j:jelly>
