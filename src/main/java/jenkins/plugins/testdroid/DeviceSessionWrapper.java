@@ -38,6 +38,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     private static final long serialVersionUID = 1L;
 
+    private final static int DEFAULT_FLASH_TIMEOUT = 10*60;  //10mins
+    private final static int DEFAULT_FLASH_RETRIES = 5;
+
     //device label group which contains all the build version labels
     private final static String BUILD_IDENTIFIER_LABEL_GROUP = "Build Identifier";
 
@@ -49,11 +52,6 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     //parameter for total memory to allocate
     private final static String MEM_TOTAL_PARAM = "MEM_TOTAL";
-
-    //maximum waiting time for flash project to finish
-    private final static int FLASH_TIMEOUT = 10*60*1000;  //10mins
-
-    private final static int FLASH_RETRIES = 3;
 
     private final static int WAIT_FOR_PROXY_TIMEOUT = 5*60*1000;  //5mins
 
@@ -137,7 +135,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         APIDeviceSession session = null;
 
-        int retries = FLASH_RETRIES;
+        int retries = descriptor.getFlashRetries();
         do {
 
             try {
@@ -368,8 +366,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @throws InterruptedException
      */
     private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+        DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIDevice device;
-        int maxRetries = FLASH_RETRIES;
+        int retries = descriptor.getFlashRetries();
 
         ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
         ArrayList<DeviceFilter> flashFilters = new ArrayList<DeviceFilter>();
@@ -381,8 +380,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
         //look for device having "Build Identifier" label with value {buildIdentifier}
         searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
         while( (device = searchDevice(logger, client, searchFilters, false)) == null) {
-            if(maxRetries-- < 0) {
-                logger.info(String.format("Flashing device failed, tried %d times but no device found", FLASH_RETRIES));
+            if(retries-- < 0) {
+                logger.info(String.format("Flashing device failed, retried %d time%s but no device found", descriptor.getFlashRetries(), descriptor.getFlashRetries().equals(1) ? "" : "s"));
                 throw new IOException("Device flashing failed");
             }
             //if not matching device is not found run flash project
@@ -425,6 +424,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @return
      */
     public boolean flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal) throws APIException, IOException, InterruptedException {
+        DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(FLASH_PROJECT_NAME));
         APIList<APIProject> projectList = projectAPIListResource.getEntity();
@@ -464,7 +464,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         logger.info(String.format("Flashing device with %s%s", buildURL, memoryThrottled));
         client.post(String.format("/runs/%s/start", testRun.getId()), usedDevicesId, APITestRun.class);
         testRun = flashProject.getTestRun(testRun.getId());
-        long waitUntil = System.currentTimeMillis() + FLASH_TIMEOUT;
+        long waitUntil = System.currentTimeMillis() + (descriptor.getFlashTimeout() * 1000);
         while(!testRun.getState().equals(APITestRun.State.FINISHED)) {
             try {
                 Thread.sleep(POLL_INTERVAL);
@@ -475,8 +475,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     if(testRun.getState().equals(APITestRun.State.WAITING)) {
                         testRun.abort();
                     }
-                    logger.error(String.format("Flashing device timed out after %d seconds", FLASH_TIMEOUT / 1000));
-                    LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", FLASH_TIMEOUT / 1000));
+                    logger.error(String.format("Flashing device timed out after %d seconds", descriptor.getFlashTimeout()));
+                    LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", descriptor.getFlashTimeout()));
                     return false;
                 }
                 testRun.refresh();
@@ -639,6 +639,9 @@ public class DeviceSessionWrapper extends BuildWrapper {
         String endPointURL;
         String username;
         String password;
+        Integer flashTimeout;
+        Integer flashRetries;
+
 
         public DescriptorImpl() {
             super(DeviceSessionWrapper.class);
@@ -656,6 +659,16 @@ public class DeviceSessionWrapper extends BuildWrapper {
             this.endPointURL = json.getString("endPointURL");
             this.username = json.getString("username");
             this.password = json.getString("password");
+            try {
+                this.flashTimeout = new Integer(json.getString("flashTimeout"));
+            } catch (NumberFormatException e) {
+                this.flashTimeout = DEFAULT_FLASH_TIMEOUT;
+            }
+            try {
+                this.flashRetries = new Integer(json.getString("flashRetries"));
+            } catch (NumberFormatException e) {
+                this.flashRetries = DEFAULT_FLASH_RETRIES;
+            }
             save();
             return true;
         }
@@ -675,6 +688,14 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         public String getPassword() {
             return password;
+        }
+
+        public Integer getFlashTimeout() {
+            return flashTimeout != null ? flashTimeout : DEFAULT_FLASH_TIMEOUT;
+        }
+
+        public Integer getFlashRetries() {
+            return flashRetries != null ? flashRetries : DEFAULT_FLASH_RETRIES;
         }
 
         public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {
@@ -734,6 +755,32 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return FormValidation.error("Username is mandatory");
             } else {
                 return FormValidation.ok();
+            }
+        }
+
+        public FormValidation doCheckFlashTimeout(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                Integer flashTimeout = Integer.parseInt(value);
+                if (flashTimeout > 0) {
+                    return FormValidation.ok();
+                } else {
+                    return FormValidation.error("Flash timeout must greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Flash timeout must be a number");
+            }
+        }
+
+        public FormValidation doCheckFlashRetries(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                Integer flashRetries = Integer.parseInt(value);
+                if (flashRetries >= 0) {
+                    return FormValidation.ok();
+                } else {
+                    return FormValidation.error("Flash retries must 0 or greater");
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Flash retries must be a number");
             }
         }
     }

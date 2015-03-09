@@ -13,5 +13,15 @@
                  field="password">
             <f:password name="password" />
         </f:entry>
+        <f:advanced>
+            <f:entry title="${%Flash timeout}"
+                     field="flashTimeout">
+                <f:number name="flashTimeout" />
+            </f:entry>
+            <f:entry title="${%Flash retries}"
+                     field="flashRetries">
+                <f:number name="flashRetries" />
+            </f:entry>
+        </f:advanced>
     </f:section>
 </j:jelly>
