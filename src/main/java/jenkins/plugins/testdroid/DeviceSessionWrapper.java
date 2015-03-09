@@ -357,12 +357,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
      *
      * @param build
      * @param launcher
-     *@param logger
+     * @param logger
      * @param client
      * @param filters
      * @param buildIdentifier
      * @param buildURL
-     * @param memTotal       @throws APIException
+     * @param memTotal
+     * @throws APIException
      * @throws IOException
      * @throws InterruptedException
      */
@@ -495,8 +496,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
         for(APIDeviceRun deviceRun : deviceRunList.getData()) {
             if(deviceRun.getRunStatus().equals(APIDeviceRun.RunStatus.FAILED)) {
                 URI workspaceURI = build.getWorkspace().toURI();
-                FilePath destFile = new FilePath(launcher.getChannel(), String.format("%s/failure_%d.log",workspaceURI.getPath(), deviceRun.getId()));
-                destFile.copyFrom(client.get(String.format("/device-runs/%d/cluster-logs", deviceRun.getId())));
+                String flashLogFileName = String.format("flash-%d.log", deviceRun.getId());
+                String flashLogPath = String.format("%s/%s", workspaceURI.getPath(), flashLogFileName);
+                FilePath flashLogFile = new FilePath(launcher.getChannel(), flashLogPath);
+                flashLogFile.copyFrom(client.get(String.format("/device-runs/%d/cluster-logs", deviceRun.getId())));
+                logger.info(String.format("Flash log saved as %s", flashLogFileName));
                 return false;
             }
         }
