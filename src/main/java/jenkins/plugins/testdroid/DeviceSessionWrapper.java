@@ -375,19 +375,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
         ArrayList<DeviceFilter> searchFilters = new ArrayList<DeviceFilter>();
         ArrayList<DeviceFilter> flashFilters = new ArrayList<DeviceFilter>();
 
-        if(filters != null ) {
+        if (filters != null) {
             searchFilters = (ArrayList<DeviceFilter>) filters.clone();
             flashFilters = (ArrayList<DeviceFilter>) filters.clone();
         }
-        //look for device having "Build Identifier" label with value {buildIdentifier}
-        searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
-        while( (device = searchDevice(logger, client, searchFilters, false)) == null) {
-            if(retries-- < 0) {
-                logger.info(String.format("Flashing device failed, retried %d time%s but no device found", descriptor.getFlashRetries(), descriptor.getFlashRetries().equals(1) ? "" : "s"));
-                throw new IOException("Device flashing failed");
+
+        if (descriptor.getSkipFlash()) {
+            //look for device having "Build Identifier" label with value {buildIdentifier}
+            searchFilters.add(new DeviceFilter(BUILD_IDENTIFIER_LABEL_GROUP, buildIdentifier));
+            while ((device = searchDevice(logger, client, searchFilters, false)) == null) {
+                if (retries-- < 0) {
+                    logger.info(String.format("Flashing device failed, retried %d time%s but no device found", descriptor.getFlashRetries(), descriptor.getFlashRetries().equals(1) ? "" : "s"));
+                    throw new IOException("Device flashing failed");
+                }
+                //if not matching device is not found run flash project
+                flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
             }
-            //if not matching device is not found run flash project
-            flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
+        } else {
+            device = flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
         }
         return device;
     }
@@ -425,7 +430,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public boolean flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
+    public APIDevice flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(flashProjectName));
@@ -433,7 +438,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         if(projectList == null || projectList.getTotal() <= 0) {
             logger.error(String.format("Unable find project %s", flashProjectName));
             LOGGER.log(Level.SEVERE, String.format("Unable find project %s", flashProjectName));
-            return false;
+            return null;
         }
         APIProject flashProject = projectList.get(0);
 
@@ -480,7 +485,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     }
                     logger.error(String.format("Flashing device timed out after %d seconds", descriptor.getFlashTimeout()));
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", descriptor.getFlashTimeout()));
-                    return false;
+                    return null;
                 }
                 testRun.refresh();
             } catch (InterruptedException ie) {
@@ -493,7 +498,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         APIList<APIDeviceRun> deviceRunList = deviceRunAPIListResource.getEntity();
         if(deviceRunList == null || deviceRunList.getTotal() <= 0) {
             logger.error(String.format("Can't find device run from test run: %d", testRun.getId()));
-            return false;
+            return null;
         }
 
         for(APIDeviceRun deviceRun : deviceRunList.getData()) {
@@ -504,13 +509,13 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 FilePath flashLogFile = new FilePath(launcher.getChannel(), flashLogPath);
                 flashLogFile.copyFrom(client.get(String.format("/device-runs/%d/cluster-logs", deviceRun.getId())));
                 logger.info(String.format("Flash log saved as %s", flashLogFileName));
-                return false;
+                return null;
             }
         }
         //Sometimes we return from flashing before the device is available for use
         //TODO Remove this hardcoded sleep once we fix the root cause
         Thread.sleep(30000);
-        return true;
+        return device;
     }
 
     public APIDevice searchDevice(TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, boolean lockedDeviceAllowed) throws APIException {
@@ -651,6 +656,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         String password;
         Integer flashTimeout;
         Integer flashRetries;
+        Boolean skipFlash;
 
 
         public DescriptorImpl() {
@@ -679,6 +685,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (NumberFormatException e) {
                 this.flashRetries = DEFAULT_FLASH_RETRIES;
             }
+            this.skipFlash = json.getBoolean("skipFlash");
             save();
             return true;
         }
@@ -706,6 +713,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         public Integer getFlashRetries() {
             return flashRetries != null ? flashRetries : DEFAULT_FLASH_RETRIES;
+        }
+
+        public Boolean getSkipFlash() {
+            return skipFlash;
         }
 
         public FormValidation doCheckBuildURL(@QueryParameter String value) throws IOException, ServletException {

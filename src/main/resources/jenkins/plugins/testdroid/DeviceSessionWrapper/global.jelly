@@ -22,6 +22,9 @@
                      field="flashRetries">
                 <f:number name="flashRetries" />
             </f:entry>
+            <f:entry field="skipFlash">
+                <f:checkbox name="skipFlash" title="Reuse devices matching the build identifier (where possible)"/>
+            </f:entry>
         </f:advanced>
     </f:section>
 </j:jelly>
