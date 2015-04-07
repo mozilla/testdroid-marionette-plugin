@@ -11,6 +11,7 @@ import hudson.tasks.BuildWrapper;
 import hudson.tasks.BuildWrapperDescriptor;
 import hudson.util.FormValidation;
 import jenkins.model.Jenkins;
+import jenkins.plugins.testdroid.exceptions.FlashTimeoutException;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONException;
 import net.sf.json.JSONObject;
@@ -133,7 +134,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         String buildIdentifier = String.format("%s_%s", finalMemTotal, finalBuildURL);
 
-        APIDevice device;
+        APIDevice device = null;
 
         APIDeviceSession session = null;
 
@@ -145,8 +146,12 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (APIException e) {
                 logger.error("Failed to retrieve device by build id " + e.getMessage());
                 throw new IOException(e);
+            } catch (FlashTimeoutException fte) {
+                logger.warn(fte.getMessage());
             }
-
+            if(device == null) {
+                continue;
+            }
             Map<String, String> deviceSessionsParams = new HashMap<String, String>();
             deviceSessionsParams.put("deviceModelId", device.getId().toString());
 
@@ -367,7 +372,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * @throws IOException
      * @throws InterruptedException
      */
-    private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
+    private APIDevice getDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildIdentifier, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException, FlashTimeoutException {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIDevice device;
         int retries = descriptor.getFlashRetries();
@@ -389,7 +394,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     throw new IOException("Device flashing failed");
                 }
                 //if not matching device is not found run flash project
-                flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
+                try {
+                    flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
+                } catch(FlashTimeoutException fte) {
+                    //ignore - retrying
+                }
             }
         } else {
             device = flashDevice(build, launcher, logger, client, flashFilters, buildURL, memTotal, flashProjectName);
@@ -430,7 +439,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
      * Run "flash" project and wait until it has completed
      * @return
      */
-    public APIDevice flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException {
+    public APIDevice flashDevice(AbstractBuild build, Launcher launcher, TestdroidLogger logger, APIClient client, ArrayList<DeviceFilter> filters, String buildURL, String memTotal, String flashProjectName) throws APIException, IOException, InterruptedException, FlashTimeoutException {
         DescriptorImpl descriptor = (DescriptorImpl) Jenkins.getInstance().getDescriptor(getClass());
         APIUser user = client.me();
         APIListResource<APIProject>  projectAPIListResource = user.getProjectsResource(new APIQueryBuilder().search(flashProjectName));
@@ -485,7 +494,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
                     }
                     logger.error(String.format("Flashing device timed out after %d seconds", descriptor.getFlashTimeout()));
                     LOGGER.log(Level.SEVERE, String.format("Flash project didn't finish in %d seconds", descriptor.getFlashTimeout()));
-                    return null;
+                    throw new FlashTimeoutException("Flashing device timed out");
                 }
                 testRun.refresh();
             } catch (InterruptedException ie) {
@@ -512,9 +521,24 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 return null;
             }
         }
+
         //Sometimes we return from flashing before the device is available for use
-        //TODO Remove this hardcoded sleep once we fix the root cause
-        Thread.sleep(30000);
+        waitUntil = System.currentTimeMillis() + 60000;
+        device.refresh();
+
+        while(!device.isOnline() || device.isLocked()) {
+
+            Thread.sleep(POLL_INTERVAL);
+
+            if ( waitUntil <  System.currentTimeMillis())
+            {
+                logger.warn(String.format("The device was flashed - device status locked:%b online:%b",
+                        device.isLocked(), device.isOnline()));
+                return device;
+            }
+            device.refresh();
+        }
+
         return device;
     }
 

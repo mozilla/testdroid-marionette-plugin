@@ -23,4 +23,6 @@ public class TestdroidLogger implements Serializable {
     public void error(String message) {
         listener.getLogger().println("[Testdroid] - [ERROR] - " + message);
     }
+
+    public void warn(String message) { listener.getLogger().println("[Testdroid] - [WARN] - " + message); }
 }
