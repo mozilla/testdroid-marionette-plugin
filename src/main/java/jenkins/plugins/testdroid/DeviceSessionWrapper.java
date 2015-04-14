@@ -42,6 +42,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
     private final static String DEFAULT_FLASH_PROJECT_NAME = "flash-fxos";
     private final static int DEFAULT_FLASH_TIMEOUT = 10*60;  //10mins
     private final static int DEFAULT_FLASH_RETRIES = 5;
+    private final static int DEFAULT_SESSION_TIMEOUT = 30*60;  //30mins
 
     //device label group which contains all the build version labels
     private final static String BUILD_IDENTIFIER_LABEL_GROUP = "Build Identifier";
@@ -154,6 +155,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             }
             Map<String, String> deviceSessionsParams = new HashMap<String, String>();
             deviceSessionsParams.put("deviceModelId", device.getId().toString());
+            deviceSessionsParams.put("timeout", descriptor.getSessionTimeout().toString());
 
             //in this phase we have found device with specific label, however it might not be available anymore
             //1) request device session
@@ -680,6 +682,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
         String password;
         Integer flashTimeout;
         Integer flashRetries;
+        Integer sessionTimeout;
         Boolean skipFlash;
 
 
@@ -709,6 +712,11 @@ public class DeviceSessionWrapper extends BuildWrapper {
             } catch (NumberFormatException e) {
                 this.flashRetries = DEFAULT_FLASH_RETRIES;
             }
+            try {
+                this.sessionTimeout = new Integer(json.getString("sessionTimeout"));
+            } catch (NumberFormatException e) {
+                this.sessionTimeout = DEFAULT_SESSION_TIMEOUT;
+            }
             this.skipFlash = json.getBoolean("skipFlash");
             save();
             return true;
@@ -737,6 +745,10 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
         public Integer getFlashRetries() {
             return flashRetries != null ? flashRetries : DEFAULT_FLASH_RETRIES;
+        }
+
+        public Integer getSessionTimeout() {
+            return sessionTimeout != null ? sessionTimeout : DEFAULT_SESSION_TIMEOUT;
         }
 
         public Boolean getSkipFlash() {
@@ -826,6 +838,19 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 }
             } catch (NumberFormatException e) {
                 return FormValidation.error("Flash retries must be a number");
+            }
+        }
+
+        public FormValidation doCheckSessionTimeout(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                Integer flashTimeout = Integer.parseInt(value);
+                if (flashTimeout > 0) {
+                    return FormValidation.ok();
+                } else {
+                    return FormValidation.error("Session timeout must greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Session timeout must be a number");
             }
         }
     }

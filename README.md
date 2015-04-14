@@ -21,9 +21,10 @@ provide the Testdroid API endpoint, your username, and your password:
 
 ![Global configuration][global_config]
 
-You can also provide advanced options such as the how long to wait for a device
-to be flashed, how many attempts to flash a device before failing the build,
-and to skip flashing if a device is found with the target build:
+You can also provide advanced options such as the maximum session duration, how
+long to wait for a device to be flashed, how many attempts to flash a device
+before failing the build, and to skip flashing if a device is found with the
+target build:
 
 ![Advanced global configuration][global_config_advanced]
 
