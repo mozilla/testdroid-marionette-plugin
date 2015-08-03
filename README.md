@@ -75,6 +75,7 @@ the build. These allow your build steps to communicate with the device:
 * **DEVICE_DATA** - Path to device data file.
 * **MARIONETTE_HOST** - Host that the Marionette server is running on.
 * **MARIONETTE_PORT** - Port that the Marionette server is running on.
+* **MARIONETTE_FORWARD_HOST** - Internal host that the Marionette connection is forwarded to.
 * **MARIONETTE_FORWARD_PORT** - Internal port that the Marionette connection is forwarded to.
 * **SESSION_ID** - Testdroid session identifier.
 

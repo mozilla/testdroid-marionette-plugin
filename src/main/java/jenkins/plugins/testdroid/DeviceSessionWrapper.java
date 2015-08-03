@@ -198,6 +198,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             marionette = getProxy("marionette", client, session);
             logger.info("Marionette port: " + marionette.getString("port"));
             logger.info("Marionette host: " + host);
+            logger.info("Marionette forwarding host: " + marionette.getString("forwardHost"));
             logger.info("Marionette forwarding port: " + marionette.getString("forwardPort"));
         } catch (IOException ioe) {
             logger.info("Failed to fetch proxy entries " + ioe.getMessage());
@@ -220,7 +221,8 @@ public class DeviceSessionWrapper extends BuildWrapper {
                 env.put("ANDROID_SERIAL", adbJSONObject.getString("serialId"));
                 env.put("MARIONETTE_PORT", marionetteJSONObject.getString("port"));
                 env.put("MARIONETTE_HOST", host);
-                env.put("MARIONETTE_FORWARD_PORT", marionetteJSONObject.getString("forwardPort"))
+                env.put("MARIONETTE_FORWARD_HOST", marionetteJSONObject.getString("forwardHost"));
+                env.put("MARIONETTE_FORWARD_PORT", marionetteJSONObject.getString("forwardPort"));
             }
 
             @Override
