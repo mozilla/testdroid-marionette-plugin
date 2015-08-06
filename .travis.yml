@@ -1,0 +1,20 @@
+language: java
+
+jdk:
+- openjdk7
+
+script:
+- mvn clean package
+
+cache:
+  directories:
+    - $HOME/.m2
+
+deploy:
+  provider: releases
+  api_key:
+    secure: AuN0zYIV1UQqEAc9kdxHaeP5gTFD0WFGyf777/JEp2VhoCbBuSldlfXy7r4ELK8kqr1OostlsVGIFq0bKUB9bAYTssfom3/tz2UdVtZl5BR/nJGW5eDRUcJNBG+CTVlrnsGP08eXwNjGUvqGMwVUZbXdJLYJGCU6Kh06k76x7kE=
+  file: target/testdroid-marionette.hpi
+  on:
+    repo: mozilla/testdroid-marionette-plugin
+    tags: true

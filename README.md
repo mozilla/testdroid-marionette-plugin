@@ -1,4 +1,4 @@
-# Testdroid Marionette Plugin
+# Testdroid Marionette Plugin  [![Build Status][travis-image]][travis-url]
 This [Jenkins][jenkins] plugin provisions a Firefox OS device via Testdroid.
 
 ## Source code
@@ -117,3 +117,5 @@ investigating failures.
 [global_config_advanced]: https://raw.githubusercontent.com/mozilla/testdroid-marionette-plugin/master/images/global_config_advanced.png "Advanced global configuration"
 [job_config]: https://raw.githubusercontent.com/mozilla/testdroid-marionette-plugin/master/images/job_config.png "Job configuration"
 [device_filter_config]: https://raw.githubusercontent.com/mozilla/testdroid-marionette-plugin/master/images/device_filter_config.png "Device filter configuration"
+[travis-image]: https://travis-ci.org/mozilla/testdroid-marionette-plugin.svg?branch=master
+[travis-url]: https://travis-ci.org/mozilla/testdroid-marionette-plugin
