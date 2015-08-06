@@ -13,7 +13,7 @@
 
   <groupId>com.testdroid.jenkins.plugins</groupId>
   <artifactId>testdroid-marionette</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version>0.0.1</version>
   <packaging>hpi</packaging>
   <name>Testdroid Marionette Plugin</name>
   <description>Jenkins plugin for managing a Testdroid device session with Marionette enabled.</description>
