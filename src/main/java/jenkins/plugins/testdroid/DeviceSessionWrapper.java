@@ -49,6 +49,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
 
     //parameter for location of build to flash TODO: add it as parameter
     private final static String BUILD_URL_PARAM = "FLAME_ZIP_URL";
+    private final static String BUILD_LABEL_PARAM = "BUILD_LABEL";
 
     //parameter for total memory to allocate
     private final static String MEM_TOTAL_PARAM = "MEM_TOTAL";
@@ -471,6 +472,7 @@ public class DeviceSessionWrapper extends BuildWrapper {
             config.deleteParameter(param.getId());
         }
         config.createParameter(BUILD_URL_PARAM, buildURL);
+        config.createParameter(BUILD_LABEL_PARAM, UrlHandler.removeBewit(buildURL));
         config.createParameter(MEM_TOTAL_PARAM, memTotal);
 
         APIDevice device = searchDevice(logger, client, filters, true);
